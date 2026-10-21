@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   windows:
@@ -21,23 +22,103 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+
+      # A push to main whose Cargo.toml version has no tag yet is a release;
+      # so is pushing a v* tag by hand. Signing runs only for releases, and
+      # only once the SignPath variables are set in the repository.
+      - name: Release check
+        id: rel
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          $tag = "v$version"
+          $release = "false"
+          if ("${{ github.ref }}" -eq "refs/tags/$tag") { $release = "true" }
+          if ("${{ github.event_name }}" -eq "push" -and "${{ github.ref }}" -eq "refs/heads/main") {
+            if (-not (git ls-remote --tags origin "refs/tags/$tag")) { $release = "true" }
+          }
+          $sign = if ($release -eq "true" -and "${{ vars.SIGNPATH_ORGANIZATION_ID }}" -ne "") { "true" } else { "false" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "release=$release" >> $env:GITHUB_OUTPUT
+          "sign=$sign" >> $env:GITHUB_OUTPUT
+          Write-Host "version $version, release $release, sign $sign"
+
       - run: cargo build --release
-      - name: Setup
+      - name: Stage daemon
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target\payload, target\installer | Out-Null
+          Copy-Item target\release\cuursor.exe target\payload\
+
+      # The daemon is signed before it is embedded, so the installed
+      # cuursor.exe is signed too.
+      - id: unsigned-daemon
+        if: steps.rel.outputs.sign == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-daemon
+          path: target/payload/cuursor.exe
+      - if: steps.rel.outputs.sign == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-daemon.outputs.artifact-id }}
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: target/payload
+
+      - name: Build setup
         shell: pwsh
         run: |
           # cuursor-ui.exe with the daemon embedded is the installer.
-          New-Item -ItemType Directory -Force target\payload, target\installer | Out-Null
-          Copy-Item target\release\cuursor.exe target\payload\
           $env:CUURSOR_PAYLOAD = "$PWD\target\payload\cuursor.exe"
           cargo build --release --bin cuursor-ui
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item target\release\cuursor-ui.exe target\installer\cuursor-setup.exe
+
+      - id: unsigned-setup
+        if: steps.rel.outputs.sign == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-setup
+          path: target/installer/cuursor-setup.exe
+      - if: steps.rel.outputs.sign == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: target/installer
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash target\installer\cuursor-setup.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  cuursor-setup.exe" | Set-Content -NoNewline -Encoding ascii target\installer\SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: cuursor-setup
           path: target/installer/cuursor-setup.exe
       - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.rel.outputs.release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: target/installer/cuursor-setup.exe
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: cuursor ${{ steps.rel.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          body: |
+            **[Download cuursor-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ steps.rel.outputs.tag }}/cuursor-setup.exe)**, run it and click Install.
+            If SmartScreen says "Windows protected your PC", click **More info → Run anyway** (see [Code signing](https://github.com/${{ github.repository }}#code-signing)).
+
+            [![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
+          make_latest: true
+          files: |
+            target/installer/cuursor-setup.exe
+            target/installer/SHA256SUMS.txt
