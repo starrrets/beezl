@@ -1,52 +1,59 @@
-//! Windows application: tray icon, settings, and wiring to the mouse hook.
+//! Background process: owns the mouse hook and the tray icon. All windows
+//! (tray flyout, settings) live in `cuursor-ui.exe`, started on demand, so
+//! this process stays small and nothing UI-related can delay mouse input.
 
-mod autostart;
 mod hook;
-mod icon;
-mod monitors;
 
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::os::windows::io::AsRawHandle;
+use std::process::{Child, Command};
 use std::sync::atomic::Ordering;
 
-use cuursor::config::{self, Config};
+use cuursor::config::Config;
 use cuursor::layout::Layout;
+use cuursor::sys::{self, autostart, monitors, tr, wide, DAEMON_CLASS, WM_CUURSOR_RELOAD, WM_CUURSOR_SHOW_SETTINGS};
+use cuursor::task::FROM_TASK_ARG;
 use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, POINT, WPARAM};
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::Threading::{
-    CreateMutexW, GetCurrentProcess, SetPriorityClass, ABOVE_NORMAL_PRIORITY_CLASS,
+use windows::Win32::Foundation::{
+    GetLastError, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, FILETIME, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT,
+    WPARAM,
 };
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::SystemInformation::GetSystemTimeAsFileTime;
+use windows::Win32::System::Threading::{
+    CreateMutexW, GetCurrentProcess, GetProcessTimes, SetPriorityClass, ABOVE_NORMAL_PRIORITY_CLASS,
+};
+use windows::Win32::UI::Controls::{LoadIconMetric, LIM_SMALL};
 use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows::Win32::UI::Shell::{
-    ShellExecuteW, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+    Shell_NotifyIconGetRect, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
+    NOTIFYICONDATAW, NOTIFYICONIDENTIFIER, NOTIFY_ICON_MESSAGE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW,
-    GetCursorPos, GetMessageW, KillTimer, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
-    RegisterWindowMessageW, SetForegroundWindow, SetTimer, TrackPopupMenu, TranslateMessage, HICON, MB_ICONERROR,
-    MB_ICONINFORMATION, MB_OK, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL, TPM_RIGHTBUTTON,
-    WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_DISPLAYCHANGE, WM_LBUTTONDBLCLK, WM_NULL,
-    WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
+    AllowSetForegroundWindow, AppendMenuW, ChangeWindowMessageFilterEx, CreatePopupMenu, CreateWindowExW,
+    DefWindowProcW, DestroyIcon, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, KillTimer,
+    MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetTimer,
+    TrackPopupMenu, TranslateMessage, ASFW_ANY, HICON, MB_ICONERROR, MB_OK, MESSAGEBOX_STYLE, MF_SEPARATOR, MF_STRING,
+    MSG, MSGFLT_ALLOW, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_COMMAND, WM_DESTROY, WM_DISPLAYCHANGE,
+    WM_DPICHANGED, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
 };
 
 const WM_TRAY: u32 = WM_APP + 10;
 const TIMER_RELOAD: usize = 1;
 
-const ID_ENABLED: usize = 1;
-const ID_MONITORS: usize = 2;
-const ID_CONFIG: usize = 3;
-const ID_RELOAD: usize = 4;
-const ID_AUTOSTART: usize = 5;
-const ID_EXIT: usize = 6;
+const ID_SETTINGS: usize = 1;
+const ID_EXIT: usize = 2;
+
+/// A click on the tray icon that closed the flyout must not reopen it.
+const REOPEN_GUARD_MS: u64 = 400;
 
 struct App {
     hwnd: HWND,
     cfg: Config,
-    monitors: Vec<monitors::Monitor>,
     icon_on: HICON,
     icon_off: HICON,
     taskbar_created: u32,
+    flyout: Option<Child>,
 }
 
 thread_local! {
@@ -54,34 +61,78 @@ thread_local! {
 }
 
 pub fn run() {
-    unsafe {
-        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        let _ = CreateMutexW(None, true, w!("Local\\cuursor-single-instance"));
-        if GetLastError() == ERROR_ALREADY_EXISTS {
-            message(MB_ICONINFORMATION, "cuursor уже запущен — ищите значок в трее.");
-            return;
-        }
-        let _ = SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let has = |a: &str| args.iter().any(|x| x == a);
+
+    // Installer hooks.
+    if has("--register") {
+        std::process::exit(if autostart::register_task() { 0 } else { 1 });
+    }
+    if has("--unregister") {
+        autostart::unregister_task();
+        return;
     }
 
-    let cfg = load_config();
+    unsafe {
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+    let from_task = has(FROM_TASK_ARG);
+
+    // Already running: a manual launch just opens the settings.
+    if unsafe { windows::Win32::UI::WindowsAndMessaging::FindWindowW(DAEMON_CLASS, None) }.is_ok() {
+        if !from_task {
+            // Let the running instance bring its window to the front.
+            unsafe {
+                let _ = AllowSetForegroundWindow(ASFW_ANY);
+            }
+            sys::notify_daemon(WM_CUURSOR_SHOW_SETTINGS);
+        }
+        return;
+    }
+    // Prefer the elevated instance started by the installed logon task, so the
+    // hook also works over admin windows.
+    if !from_task && !autostart::is_elevated() && autostart::launch_via_task() {
+        return;
+    }
+    unsafe {
+        let _ = CreateMutexW(None, true, w!("Local\\cuursor-single-instance"));
+        let e = GetLastError();
+        if e == ERROR_ALREADY_EXISTS || e == ERROR_ACCESS_DENIED {
+            return;
+        }
+    }
+    let manual = autostart::take_launch_flag();
+    let first_run = !sys::config_path().exists();
+    let cfg = sys::load_config();
+    if from_task && !manual && !cfg.autostart {
+        return;
+    }
+    if first_run {
+        let _ = sys::save_config(&cfg);
+    }
+
+    unsafe {
+        let _ = SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
+    }
     hook::ENABLED.store(cfg.enabled, Ordering::Relaxed);
-    let mons = monitors::enumerate(&cfg);
-    hook::start(params(&cfg, &mons));
-    autostart::refresh_path();
+    hook::start(params(&cfg));
 
     let hwnd = create_window();
+    let (icon_on, icon_off) = load_icons();
     APP.with(|a| {
         *a.borrow_mut() = Some(App {
             hwnd,
             cfg,
-            monitors: mons,
-            icon_on: icon::make(true),
-            icon_off: icon::make(false),
+            icon_on,
+            icon_off,
             taskbar_created: unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) },
+            flyout: None,
         })
     });
     tray(NIM_ADD);
+    if first_run {
+        spawn_ui(&["--settings"]);
+    }
 
     let mut msg = MSG::default();
     unsafe {
@@ -95,7 +146,8 @@ pub fn run() {
     hook::stop();
 }
 
-fn params(cfg: &Config, mons: &[monitors::Monitor]) -> hook::Params {
+fn params(cfg: &Config) -> hook::Params {
+    let mons = monitors::enumerate(cfg);
     hook::Params {
         layout: Layout::build(mons.iter().map(|m| m.screen()).collect(), cfg.mode, cfg.align),
         skip_injected: cfg.skip_injected,
@@ -103,63 +155,42 @@ fn params(cfg: &Config, mons: &[monitors::Monitor]) -> hook::Params {
     }
 }
 
-fn config_path() -> PathBuf {
-    let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-    base.join("cuursor").join("config.toml")
-}
-
-fn load_config() -> Config {
-    let path = config_path();
-    let text = match std::fs::read_to_string(&path) {
-        Ok(t) => t,
-        Err(_) => {
-            if let Some(dir) = path.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            let _ = std::fs::write(&path, config::DEFAULT_TOML);
-            config::DEFAULT_TOML.to_string()
-        }
-    };
-    config::parse(&text).unwrap_or_else(|e| {
-        message(MB_ICONERROR, &format!("Ошибка в {}:\n\n{e}\n\nИспользую настройки по умолчанию.", path.display()));
-        Config::default()
-    })
-}
-
-/// Re-read config and monitors and hand a fresh layout to the hook.
-fn reload(reread_config: bool) {
-    let cfg = if reread_config { Some(load_config()) } else { None };
-    let p = APP.with(|a| {
-        let mut a = a.borrow_mut();
-        let app = a.as_mut()?;
-        if let Some(cfg) = cfg {
-            hook::ENABLED.store(cfg.enabled, Ordering::Relaxed);
+/// Re-read settings and monitors and hand a fresh layout to the hook.
+fn reload() {
+    let cfg = sys::load_config();
+    hook::ENABLED.store(cfg.enabled, Ordering::Relaxed);
+    hook::update(params(&cfg));
+    APP.with(|a| {
+        if let Some(app) = a.borrow_mut().as_mut() {
             app.cfg = cfg;
         }
-        app.monitors = monitors::enumerate(&app.cfg);
-        Some(params(&app.cfg, &app.monitors))
     });
-    if let Some(p) = p {
-        hook::update(p);
-    }
     tray(NIM_MODIFY);
+}
+
+fn load_icons() -> (HICON, HICON) {
+    unsafe {
+        let inst = GetModuleHandleW(None).unwrap_or_default();
+        let load =
+            |id: usize| LoadIconMetric(Some(inst.into()), PCWSTR(id as *const u16), LIM_SMALL).unwrap_or_default();
+        (load(1), load(2))
+    }
 }
 
 fn create_window() -> HWND {
     unsafe {
         let instance = GetModuleHandleW(None).expect("module handle");
-        let class = w!("cuursor.tray");
         let wc = WNDCLASSW {
             lpfnWndProc: Some(wndproc),
             hInstance: instance.into(),
-            lpszClassName: class,
+            lpszClassName: DAEMON_CLASS,
             ..Default::default()
         };
         RegisterClassW(&wc);
         // A real (hidden) top-level window: message-only windows miss WM_DISPLAYCHANGE.
-        CreateWindowExW(
+        let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE(0),
-            class,
+            DAEMON_CLASS,
             w!("cuursor"),
             WS_OVERLAPPED,
             0,
@@ -171,15 +202,20 @@ fn create_window() -> HWND {
             Some(instance.into()),
             None,
         )
-        .expect("create window")
+        .unwrap_or_else(|_| fatal(tr("Не удалось создать окно.", "Could not create the window.")));
+        // When elevated, let the non-elevated UI and launcher still talk to us.
+        for m in [WM_CUURSOR_RELOAD, WM_CUURSOR_SHOW_SETTINGS] {
+            let _ = ChangeWindowMessageFilterEx(hwnd, m, MSGFLT_ALLOW, None);
+        }
+        hwnd
     }
 }
 
-fn tray(action: windows::Win32::UI::Shell::NOTIFY_ICON_MESSAGE) {
+fn tray(action: NOTIFY_ICON_MESSAGE) {
     APP.with(|a| {
         let a = a.borrow();
         let Some(app) = a.as_ref() else { return };
-        let on = hook::ENABLED.load(Ordering::Relaxed);
+        let on = app.cfg.enabled;
         let mut nid = NOTIFYICONDATAW {
             cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: app.hwnd,
@@ -189,7 +225,11 @@ fn tray(action: windows::Win32::UI::Shell::NOTIFY_ICON_MESSAGE) {
             hIcon: if on { app.icon_on } else { app.icon_off },
             ..Default::default()
         };
-        let tip = if on { "cuursor — включён" } else { "cuursor — выключен" };
+        let tip = if on {
+            tr("cuursor — включён", "cuursor — on")
+        } else {
+            tr("cuursor — выключен", "cuursor — off")
+        };
         copy_wide(&mut nid.szTip, tip);
         unsafe {
             let _ = Shell_NotifyIconW(action, &nid);
@@ -197,18 +237,98 @@ fn tray(action: windows::Win32::UI::Shell::NOTIFY_ICON_MESSAGE) {
     });
 }
 
+fn refresh_icons() {
+    let (on, off) = load_icons();
+    APP.with(|a| {
+        if let Some(app) = a.borrow_mut().as_mut() {
+            unsafe {
+                let _ = DestroyIcon(app.icon_on);
+                let _ = DestroyIcon(app.icon_off);
+            }
+            app.icon_on = on;
+            app.icon_off = off;
+        }
+    });
+    tray(NIM_MODIFY);
+}
+
+fn spawn_ui(args: &[&str]) -> Option<Child> {
+    let exe = std::env::current_exe().ok()?.with_file_name("cuursor-ui.exe");
+    match Command::new(&exe).args(args).spawn() {
+        Ok(c) => {
+            unsafe {
+                let _ = AllowSetForegroundWindow(c.id());
+            }
+            Some(c)
+        }
+        Err(e) => {
+            message(
+                MB_ICONERROR,
+                &format!("{}\n{}\n\n{e}", tr("Не удалось открыть окно:", "Could not open:"), exe.display()),
+            );
+            None
+        }
+    }
+}
+
+fn now_ms() -> u64 {
+    filetime_ms(unsafe { GetSystemTimeAsFileTime() })
+}
+
+fn filetime_ms(t: FILETIME) -> u64 {
+    (((t.dwHighDateTime as u64) << 32) | t.dwLowDateTime as u64) / 10_000
+}
+
+/// Open the flyout next to the tray icon, unless the click is the one that
+/// just closed it (the flyout closes itself when it loses focus).
+fn toggle_flyout(hwnd: HWND) {
+    let recently_open = APP.with(|a| {
+        let mut a = a.borrow_mut();
+        let Some(child) = a.as_mut().and_then(|app| app.flyout.as_mut()) else { return false };
+        match child.try_wait() {
+            Ok(None) => true,
+            _ => unsafe {
+                let (mut c, mut e, mut k, mut u) = Default::default();
+                let h = HANDLE(child.as_raw_handle());
+                GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u).is_ok()
+                    && now_ms().saturating_sub(filetime_ms(e)) < REOPEN_GUARD_MS
+            },
+        }
+    });
+    if recently_open {
+        return;
+    }
+
+    let id = NOTIFYICONIDENTIFIER {
+        cbSize: std::mem::size_of::<NOTIFYICONIDENTIFIER>() as u32,
+        hWnd: hwnd,
+        uID: 1,
+        ..Default::default()
+    };
+    let r = unsafe { Shell_NotifyIconGetRect(&id) }.unwrap_or_else(|_| {
+        let mut p = POINT::default();
+        let _ = unsafe { GetCursorPos(&mut p) };
+        RECT { left: p.x, top: p.y, right: p.x + 1, bottom: p.y + 1 }
+    });
+    let rect = [r.left, r.top, r.right, r.bottom].map(|v| v.to_string());
+    let mut args = vec!["--flyout"];
+    args.extend(rect.iter().map(String::as_str));
+    let child = spawn_ui(&args);
+    APP.with(|a| {
+        if let Some(app) = a.borrow_mut().as_mut() {
+            app.flyout = child;
+        }
+    });
+}
+
 fn show_menu(hwnd: HWND) {
     unsafe {
         let Ok(menu) = CreatePopupMenu() else { return };
-        let checked = |b: bool| if b { MF_STRING | MF_CHECKED } else { MF_STRING };
-        let _ = AppendMenuW(menu, checked(hook::ENABLED.load(Ordering::Relaxed)), ID_ENABLED, w!("Включено"));
-        let _ = AppendMenuW(menu, MF_STRING, ID_MONITORS, w!("Мониторы…"));
+        let s = wide(tr("Настройки", "Settings"));
+        let x = wide(tr("Выход", "Exit"));
+        let _ = AppendMenuW(menu, MF_STRING, ID_SETTINGS, PCWSTR(s.as_ptr()));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-        let _ = AppendMenuW(menu, MF_STRING, ID_CONFIG, w!("Открыть настройки"));
-        let _ = AppendMenuW(menu, MF_STRING, ID_RELOAD, w!("Перечитать настройки"));
-        let _ = AppendMenuW(menu, checked(autostart::is_enabled()), ID_AUTOSTART, w!("Запускать при входе в Windows"));
-        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-        let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, w!("Выход"));
+        let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, PCWSTR(x.as_ptr()));
 
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);
@@ -219,45 +339,34 @@ fn show_menu(hwnd: HWND) {
     }
 }
 
-fn toggle() {
-    hook::ENABLED.fetch_xor(true, Ordering::Relaxed);
-    tray(NIM_MODIFY);
-}
-
-fn command(hwnd: HWND, id: usize) {
-    match id {
-        ID_ENABLED => toggle(),
-        ID_MONITORS => {
-            let text = APP.with(|a| a.borrow().as_ref().map(describe)).unwrap_or_default();
-            message(MB_ICONINFORMATION, &text);
-        }
-        ID_CONFIG => {
-            let path = wide(&config_path().to_string_lossy());
-            unsafe {
-                ShellExecuteW(None, w!("open"), w!("notepad.exe"), PCWSTR(path.as_ptr()), None, SW_SHOWNORMAL);
-            }
-        }
-        ID_RELOAD => reload(true),
-        ID_AUTOSTART => autostart::set(!autostart::is_enabled()),
-        ID_EXIT => unsafe {
-            let _ = DestroyWindow(hwnd);
-        },
-        _ => {}
-    }
-}
-
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_TRAY => {
             match lparam.0 as u32 {
-                WM_RBUTTONUP | WM_CONTEXTMENU => show_menu(hwnd),
-                WM_LBUTTONDBLCLK => toggle(),
+                WM_LBUTTONUP => toggle_flyout(hwnd),
+                WM_RBUTTONUP => show_menu(hwnd),
                 _ => {}
             }
             LRESULT(0)
         }
         WM_COMMAND => {
-            command(hwnd, wparam.0 & 0xFFFF);
+            match wparam.0 & 0xFFFF {
+                ID_SETTINGS => {
+                    spawn_ui(&["--settings"]);
+                }
+                ID_EXIT => unsafe {
+                    let _ = DestroyWindow(hwnd);
+                },
+                _ => {}
+            }
+            LRESULT(0)
+        }
+        WM_CUURSOR_RELOAD => {
+            reload();
+            LRESULT(0)
+        }
+        WM_CUURSOR_SHOW_SETTINGS => {
+            spawn_ui(&["--settings"]);
             LRESULT(0)
         }
         WM_DISPLAYCHANGE => {
@@ -267,8 +376,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         WM_TIMER if wparam.0 == TIMER_RELOAD => {
             let _ = unsafe { KillTimer(Some(hwnd), TIMER_RELOAD) };
-            reload(false);
+            reload();
+            refresh_icons();
             LRESULT(0)
+        }
+        WM_DPICHANGED | WM_SETTINGCHANGE => {
+            refresh_icons();
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
         WM_DESTROY => {
             unsafe { PostQuitMessage(0) };
@@ -286,36 +400,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
     }
 }
 
-fn describe(app: &App) -> String {
-    use std::fmt::Write;
-    let mut s = String::new();
-    for (i, m) in app.monitors.iter().enumerate() {
-        let (w, h) = (m.rect.width(), m.rect.height());
-        let diag = m.size_mm.0.hypot(m.size_mm.1) / 25.4;
-        let ppi = w as f64 / (m.size_mm.0 / 25.4);
-        let src = match m.source {
-            monitors::SizeSource::Edid => "из EDID",
-            monitors::SizeSource::Config => "из настроек",
-            monitors::SizeSource::Guess => "НЕ ОПРЕДЕЛЁН, задайте в настройках",
-        };
-        let _ = writeln!(s, "{}. {}{}", i + 1, m.device, if m.primary { " (основной)" } else { "" });
-        if !m.model.is_empty() || !m.id.is_empty() {
-            let _ = writeln!(s, "    {} [{}]", m.model, m.id);
-        }
-        let _ = writeln!(s, "    {w}×{h} px, начало ({}, {})", m.rect.left, m.rect.top);
-        let _ = writeln!(s, "    {:.0}×{:.0} мм, {diag:.1}\", {ppi:.0} PPI — {src}\n", m.size_mm.0, m.size_mm.1);
-    }
-    let _ = write!(
-        s,
-        "Режим: {:?}, выравнивание: {:?}\nНастройки: {}",
-        app.cfg.mode,
-        app.cfg.align,
-        config_path().display()
-    );
-    s
-}
-
-pub(crate) fn message(kind: windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE, text: &str) {
+pub(crate) fn message(kind: MESSAGEBOX_STYLE, text: &str) {
     let t = wide(text);
     unsafe {
         MessageBoxW(None, PCWSTR(t.as_ptr()), w!("cuursor"), MB_OK | kind);
@@ -325,15 +410,6 @@ pub(crate) fn message(kind: windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_
 pub(crate) fn fatal(text: &str) -> ! {
     message(MB_ICONERROR, text);
     std::process::exit(1);
-}
-
-pub(crate) fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-pub(crate) fn from_wide(buf: &[u16]) -> String {
-    let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-    String::from_utf16_lossy(&buf[..end])
 }
 
 fn copy_wide(dst: &mut [u16], s: &str) {

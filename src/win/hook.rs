@@ -9,15 +9,15 @@ use std::sync::Mutex;
 use std::thread::JoinHandle;
 
 use cuursor::layout::{Decision, Layout, Rect};
-use windows::Win32::Foundation::{LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
     GetCurrentThread, GetCurrentThreadId, SetThreadPriority, THREAD_PRIORITY_TIME_CRITICAL,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetClipCursor, GetCursorPos, GetMessageW, PeekMessageW, PostThreadMessageW, SetCursorPos,
+    CallNextHookEx, GetClipCursor, GetCursorPos, GetMessageW, PeekMessageW, PostThreadMessageW, SetCursorPos, SetTimer,
     SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, WH_MOUSE_LL,
-    WM_APP, WM_MOUSEMOVE, WM_QUIT, WM_USER,
+    WM_APP, WM_MOUSEMOVE, WM_QUIT, WM_TIMER, WM_USER,
 };
 
 /// Everything the hook needs, rebuilt by the UI thread and handed over whole.
@@ -32,6 +32,7 @@ static THREAD_ID: AtomicU32 = AtomicU32::new(0);
 static THREAD: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 const MSG_UPDATE: u32 = WM_APP + 1;
+const REHOOK_MS: u32 = 60_000;
 /// Larger than any single mouse event's travel when crossing an edge.
 const EDGE_MARGIN: i32 = 128;
 
@@ -136,18 +137,31 @@ pub fn start(p: Params) {
             let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
             STATE.with(|s| *s.borrow_mut() = Some(State::new(p)));
 
-            let module = GetModuleHandleW(None).ok().map(Into::into);
-            let hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0);
+            let module: Option<HINSTANCE> = GetModuleHandleW(None).ok().map(Into::into);
+            let mut hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0);
 
             // Make sure the thread has a message queue before anyone posts to it.
             let mut msg = MSG::default();
             let _ = PeekMessageW(&mut msg, None, WM_USER, WM_USER, PM_NOREMOVE);
             let _ = tx.send((GetCurrentThreadId(), hook.is_ok()));
+            // Windows silently removes a low-level hook that once took too long
+            // (e.g. the machine stalled under load), so renew it periodically.
+            let _ = SetTimer(None, 0, REHOOK_MS, None);
 
             while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                if msg.message == MSG_UPDATE {
-                    let p = Box::from_raw(msg.lParam.0 as *mut Params);
-                    STATE.with(|s| *s.borrow_mut() = Some(State::new(*p)));
+                match msg.message {
+                    MSG_UPDATE => {
+                        let p = Box::from_raw(msg.lParam.0 as *mut Params);
+                        STATE.with(|s| *s.borrow_mut() = Some(State::new(*p)));
+                    }
+                    WM_TIMER => {
+                        if let Ok(new) = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0) {
+                            if let Ok(old) = std::mem::replace(&mut hook, Ok(new)) {
+                                let _ = UnhookWindowsHookEx(old);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
             if let Ok(h) = hook {
@@ -158,7 +172,7 @@ pub fn start(p: Params) {
 
     let (tid, ok) = rx.recv().expect("hook thread start");
     if !ok {
-        super::fatal("Не удалось установить хук мыши (SetWindowsHookEx).");
+        super::fatal(cuursor::sys::tr("Не удалось установить хук мыши.", "Could not install the mouse hook."));
     }
     THREAD_ID.store(tid, Ordering::Release);
     *THREAD.lock().unwrap() = Some(handle);
