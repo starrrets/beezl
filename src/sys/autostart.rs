@@ -1,7 +1,7 @@
 //! Autostart and elevation.
 //!
 //! Installed copies use a logon task (see [`crate::task`]) that starts
-//! cuursor elevated without a UAC prompt. Portable copies fall back to the
+//! beezl elevated without a UAC prompt. Portable copies fall back to the
 //! per-user Run key. Whether autostart is wanted is stored in the settings
 //! file, so turning it off never needs admin rights: the task still fires at
 //! logon and the app exits straight away.
@@ -24,7 +24,9 @@ use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use super::{data_dir, wide};
 
 const RUN_KEY: PCWSTR = w!(r"Software\Microsoft\Windows\CurrentVersion\Run");
-const RUN_VALUE: PCWSTR = w!("cuursor");
+const RUN_VALUE: PCWSTR = w!("beezl");
+/// Run value of v0.1, when the app was called cuursor.
+const LEGACY_RUN_VALUE: PCWSTR = w!("cuursor");
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 fn schtasks(args: &[&str]) -> bool {
@@ -50,7 +52,7 @@ pub fn register_task() -> bool {
     // schtasks wants the XML file in UTF-16 with a BOM.
     let mut bytes = vec![0xFF, 0xFE];
     bytes.extend(xml.encode_utf16().flat_map(|u| u.to_le_bytes()));
-    let path = std::env::temp_dir().join("cuursor-task.xml");
+    let path = std::env::temp_dir().join("beezl-task.xml");
     if std::fs::write(&path, bytes).is_err() {
         return false;
     }
@@ -123,6 +125,9 @@ fn run_key() -> Option<()> {
 /// replaces it.
 pub fn remove_run_key() {
     set_run_key(false);
+    unsafe {
+        let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, LEGACY_RUN_VALUE);
+    }
 }
 
 fn set_run_key(on: bool) {

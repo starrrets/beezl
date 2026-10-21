@@ -1,5 +1,5 @@
-//! Windows plumbing shared by the background process (`cuursor.exe`) and the
-//! UI (`cuursor-ui.exe`): paths, settings file, monitors, autostart and the
+//! Windows plumbing shared by the background process (`beezl.exe`) and the
+//! UI (`beezl-ui.exe`): paths, settings file, monitors, autostart and the
 //! tiny message protocol between the two.
 
 pub mod autostart;
@@ -14,15 +14,15 @@ use windows::Win32::Globalization::GetUserDefaultUILanguage;
 use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW, WM_APP};
 
 /// Class of the background process's hidden window; also how others find it.
-pub const DAEMON_CLASS: PCWSTR = w!("cuursor.tray");
+pub const DAEMON_CLASS: PCWSTR = w!("beezl.tray");
 /// UI → background: settings changed on disk, re-read them.
-pub const WM_CUURSOR_RELOAD: u32 = WM_APP + 20;
+pub const WM_BEEZL_RELOAD: u32 = WM_APP + 20;
 /// Second launch → background: show the settings window.
-pub const WM_CUURSOR_SHOW_SETTINGS: u32 = WM_APP + 21;
+pub const WM_BEEZL_SHOW_SETTINGS: u32 = WM_APP + 21;
 
 pub fn data_dir() -> PathBuf {
     let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-    base.join("cuursor")
+    base.join("beezl")
 }
 
 pub fn config_path() -> PathBuf {

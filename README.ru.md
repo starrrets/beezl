@@ -1,4 +1,4 @@
-# cuursor
+# beezl
 
 [English](README.md) · **Русский**
 
@@ -7,16 +7,19 @@
 Rust. Фоновый процесс весит меньше 1 МБ и не делает лишней работы, пока курсор
 не пересекает край экрана.
 
+До версии 0.3 программа называлась **cuursor**; установка beezl поверх неё
+перенесёт настройки и удалит старую версию.
+
 ## Установка
 
-1. Скачайте [**cuursor-setup.exe**](https://github.com/starrrets/cuursor/releases/latest/download/cuursor-setup.exe)
-   (последняя версия; все версии на странице [Releases](https://github.com/starrrets/cuursor/releases)).
+1. Скачайте [**beezl-setup.exe**](../../releases/latest/download/beezl-setup.exe)
+   (последняя версия; все версии на странице [Releases](../../releases)).
    Если Windows покажет «Система Windows защитила ваш компьютер», нажмите
    «Подробнее → Выполнить в любом случае» (см. «Подпись кода» ниже).
 2. Запустите и нажмите «Установить». Windows один раз попросит права
-   администратора: они нужны, чтобы cuursor работал и поверх окон, запущенных
+   администратора: они нужны, чтобы beezl работал и поверх окон, запущенных
    от администратора (диспетчер задач, установщики, консоли).
-3. Готово: значок появится в трее, cuursor будет запускаться вместе с Windows.
+3. Готово: значок появится в трее, beezl будет запускаться вместе с Windows.
 
 Удаляется как обычная программа: «Параметры → Приложения».
 
@@ -30,7 +33,7 @@ Rust. Фоновый процесс весит меньше 1 МБ и не де�
   её определить).
 
 Мониторы стоит расставить в «Параметры → Система → Дисплей» так, как они стоят
-на столе (например, по нижнему краю). cuursor возьмёт выравнивание оттуда.
+на столе (например, по нижнему краю). beezl возьмёт выравнивание оттуда.
 
 ## Как это работает
 
@@ -38,7 +41,7 @@ Windows стыкует мониторы по пикселям, а не по са
 экранов разная плотность пикселей (например, 24" Full HD и 27" 2K), курсор на
 границе прыгает на несколько сантиметров, а на части края упирается.
 
-cuursor ставит низкоуровневый хук мыши (`WH_MOUSE_LL`) на отдельном потоке с
+beezl ставит низкоуровневый хук мыши (`WH_MOUSE_LL`) на отдельном потоке с
 высоким приоритетом. Пока курсор внутри монитора, хук делает одно сравнение и
 пропускает событие. На границе позиция переводится в миллиметры (размер панели
 берётся из EDID монитора), и курсор ставится в ту же физическую точку соседнего
@@ -55,16 +58,16 @@ cuursor ставит низкоуровневый хук мыши (`WH_MOUSE_LL`
 
 ```powershell
 winget install Rustlang.Rustup
-cargo build --release      # target\release\cuursor.exe и cuursor-ui.exe
+cargo build --release      # target\release\beezl.exe и beezl-ui.exe
 cargo test                 # тесты геометрии
 ```
 
-Установщик: это `cuursor-ui.exe` со встроенным `cuursor.exe`.
+Установщик: это `beezl-ui.exe` со встроенным `beezl.exe`.
 
 ```powershell
-mkdir target\payload; copy target\release\cuursor.exe target\payload\
-$env:CUURSOR_PAYLOAD = "$PWD\target\payload\cuursor.exe"
-cargo build --release --bin cuursor-ui   # target\release\cuursor-ui.exe = cuursor-setup.exe
+mkdir target\payload; copy target\release\beezl.exe target\payload\
+$env:BEEZL_PAYLOAD = "$PWD\target\payload\beezl.exe"
+cargo build --release --bin beezl-ui   # target\release\beezl-ui.exe = beezl-setup.exe
 ```
 
 Новая версия выпускается поднятием `version` в `Cargo.toml`: когда это попадает
@@ -75,10 +78,10 @@ cargo build --release --bin cuursor-ui   # target\release\cuursor-ui.exe = cuurs
 * `src/layout.rs`: геометрия, какие края соприкасаются и куда переходит курсор
   (без зависимостей от Windows, покрыто тестами).
 * `src/edid.rs`: разбор EDID (физический размер и модель).
-* `src/config.rs`: настройки (`%APPDATA%\cuursor\config.toml`).
+* `src/config.rs`: настройки (`%APPDATA%\beezl\config.toml`).
 * `src/sys/`: общее для Windows: мониторы, автозапуск через планировщик задач.
-* `src/main.rs`, `src/win/`: фоновый процесс `cuursor.exe` (хук мыши и трей).
-* `src/ui/`, `ui/app.slint`: окна `cuursor-ui.exe` (панель трея и настройки,
+* `src/main.rs`, `src/win/`: фоновый процесс `beezl.exe` (хук мыши и трей).
+* `src/ui/`, `ui/app.slint`: окна `beezl-ui.exe` (панель трея и настройки,
   [Slint](https://slint.dev), стиль Fluent, светлая и тёмная тема).
 * `src/ui/install.rs`: установка и удаление (собственный установщик на Slint).
 * `vendor/i-slint-backend-winit`: копия бэкенда Slint с исправлением деления на
@@ -88,8 +91,8 @@ cargo build --release --bin cuursor-ui   # target\release\cuursor-ui.exe = cuurs
 
 Пока сборки не подписаны, поэтому SmartScreen предупреждает при первом запуске.
 Каждый релиз собирается из исходников в
-[GitHub Actions](https://github.com/starrrets/cuursor/actions), рядом с
-`cuursor-setup.exe` лежит `SHA256SUMS.txt`. Программа ничего не отправляет в
+[GitHub Actions](../../actions), рядом с
+`beezl-setup.exe` лежит `SHA256SUMS.txt`. Программа ничего не отправляет в
 сеть.
 
 ## Похожие проекты

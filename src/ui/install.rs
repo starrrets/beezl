@@ -1,5 +1,5 @@
-//! Install and uninstall. The setup program is `cuursor-ui.exe` itself with
-//! the background process (`cuursor.exe`) embedded, so one download carries
+//! Install and uninstall. The setup program is `beezl-ui.exe` itself with
+//! the background process (`beezl.exe`) embedded, so one download carries
 //! everything and the installed UI is just a copy of it. The windows are
 //! the same Fluent UI as the app; the actual work runs in an elevated copy
 //! of this process (`--do-install` / `--do-uninstall`).
@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use cuursor::sys::{self, autostart, wide, DAEMON_CLASS};
+use beezl::sys::{self, autostart, wide, DAEMON_CLASS};
 use windows::core::{w, Interface, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, LPARAM, WAIT_OBJECT_0, WPARAM};
 use windows::Win32::System::Com::{
@@ -31,13 +31,16 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW, SW_HIDE, WM_CLOSE};
 
-const UNINSTALL_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\cuursor";
+const UNINSTALL_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\beezl";
 /// Entry of the Inno Setup based v0.2 installer, replaced by this one.
 const INNO_KEY: &str =
     r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{6F1C2B7E-3D4A-4C8B-9E21-7A5D0C3B9F14}_is1";
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// The app was called cuursor up to v0.3; an update moves that install over.
+const LEGACY: &str = "cuursor";
+const LEGACY_UNINSTALL_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\cuursor";
 
-/// `cuursor.exe`, deflate-compressed, when built as the setup program.
+/// `beezl.exe`, deflate-compressed, when built as the setup program.
 static PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/daemon.deflate"));
 
 pub fn has_payload() -> bool {
@@ -45,10 +48,14 @@ pub fn has_payload() -> bool {
 }
 
 pub fn install_dir() -> PathBuf {
+    program_files().join("beezl")
+}
+
+fn program_files() -> PathBuf {
     let pf = std::env::var_os("ProgramW6432")
         .or_else(|| std::env::var_os("ProgramFiles"))
         .unwrap_or_else(|| r"C:\Program Files".into());
-    PathBuf::from(pf).join("cuursor")
+    PathBuf::from(pf)
 }
 
 /// True when this exe is the installed copy, not a downloaded setup file.
@@ -59,7 +66,7 @@ pub fn running_installed() -> bool {
 }
 
 pub fn installed_version() -> Option<String> {
-    reg_string(UNINSTALL_KEY, "DisplayVersion").or_else(|| reg_string(INNO_KEY, "DisplayVersion"))
+    [UNINSTALL_KEY, LEGACY_UNINSTALL_KEY, INNO_KEY].iter().find_map(|k| reg_string(k, "DisplayVersion"))
 }
 
 fn reg_string(key: &str, value: &str) -> Option<String> {
@@ -115,7 +122,7 @@ pub fn run_elevated(args: &str) -> Result<(), String> {
 
 /// Where the elevated worker leaves an error message for the window.
 fn error_file() -> PathBuf {
-    std::env::temp_dir().join("cuursor-setup-error.txt")
+    std::env::temp_dir().join("beezl-setup-error.txt")
 }
 
 /// Entry point of the elevated worker; returns the process exit code.
@@ -138,28 +145,20 @@ fn do_install() -> Result<(), String> {
 
     // Background process from the embedded payload, UI as a copy of ourselves.
     let daemon = miniz_oxide::inflate::decompress_to_vec(PAYLOAD).map_err(|_| "payload".to_string())?;
-    write_file(&dir.join("cuursor.exe"), &daemon)?;
+    write_file(&dir.join("beezl.exe"), &daemon)?;
     let me = std::env::current_exe().map_err(|e| e.to_string())?;
-    let ui = dir.join("cuursor-ui.exe");
+    let ui = dir.join("beezl-ui.exe");
     if !me.to_string_lossy().eq_ignore_ascii_case(&ui.to_string_lossy()) {
         let bytes = std::fs::read(&me).map_err(|e| e.to_string())?;
         write_file(&ui, &bytes)?;
     }
 
-    // Leftovers of older versions: Inno Setup files and entry, v0.1 portable copy.
-    for f in ["unins000.exe", "unins000.dat", "LICENSE"] {
-        let _ = std::fs::remove_file(dir.join(f));
-    }
-    delete_key(INNO_KEY);
-    autostart::remove_run_key();
-    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-        remove_file_retry(&PathBuf::from(local).join("cuursor").join("cuursor.exe"));
-    }
+    remove_legacy();
 
-    shortcut(&dir.join("cuursor.exe"))?;
+    shortcut(&dir.join("beezl.exe"))?;
     register_uninstall(&dir)?;
 
-    let ok = Command::new(dir.join("cuursor.exe"))
+    let ok = Command::new(dir.join("beezl.exe"))
         .arg("--register")
         .creation_flags(CREATE_NO_WINDOW)
         .status()
@@ -171,15 +170,50 @@ fn do_install() -> Result<(), String> {
     Ok(())
 }
 
+/// Remove what older versions left behind, all from when the app was called
+/// cuursor: the v0.1 portable copy and its Run value, the v0.2 Inno Setup
+/// entry, and the v0.3 install with its logon task. Settings move over.
+fn remove_legacy() {
+    autostart::remove_run_key();
+    delete_key(INNO_KEY);
+    delete_key(LEGACY_UNINSTALL_KEY);
+    let _ =
+        Command::new("schtasks.exe").args(["/delete", "/f", "/tn", LEGACY]).creation_flags(CREATE_NO_WINDOW).status();
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        let old = PathBuf::from(local).join(LEGACY);
+        remove_file_retry(&old.join("cuursor.exe"));
+        let _ = std::fs::remove_dir(old);
+    }
+    let pd = std::env::var_os("ProgramData").unwrap_or_else(|| r"C:\ProgramData".into());
+    let _ = std::fs::remove_file(PathBuf::from(pd).join(r"Microsoft\Windows\Start Menu\Programs\cuursor.lnk"));
+    let old_dir = program_files().join(LEGACY);
+    for f in ["cuursor.exe", "cuursor-ui.exe", "unins000.exe", "unins000.dat", "LICENSE"] {
+        remove_file_retry(&old_dir.join(f));
+    }
+    let _ = std::fs::remove_dir(&old_dir);
+
+    let new = sys::config_path();
+    if let Some(old) = new.parent().and_then(Path::parent).map(|p| p.join(LEGACY)) {
+        let old_cfg = old.join("config.toml");
+        if !new.exists() && old_cfg.exists() {
+            if let Some(d) = new.parent() {
+                let _ = std::fs::create_dir_all(d);
+            }
+            let _ = std::fs::copy(&old_cfg, &new);
+        }
+        let _ = std::fs::remove_dir_all(old);
+    }
+}
+
 fn do_uninstall() -> Result<(), String> {
     let dir = install_dir();
     stop_running();
-    let _ = Command::new(dir.join("cuursor.exe")).arg("--unregister").creation_flags(CREATE_NO_WINDOW).status();
+    let _ = Command::new(dir.join("beezl.exe")).arg("--unregister").creation_flags(CREATE_NO_WINDOW).status();
     let _ = std::fs::remove_file(start_menu_link());
     delete_key(UNINSTALL_KEY);
     delete_key(INNO_KEY);
     let _ = std::fs::remove_dir_all(sys::data_dir());
-    let _ = std::fs::remove_file(dir.join("cuursor.exe"));
+    let _ = std::fs::remove_file(dir.join("beezl.exe"));
     // This exe may be the one in `dir`; let cmd remove the folder after we exit.
     let _ = Command::new("cmd.exe")
         .args(["/c", "ping", "-n", "3", "127.0.0.1", ">nul", "&", "rmdir", "/s", "/q"])
@@ -209,14 +243,16 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Close the running app (politely first, so the tray icon goes away) and
-/// any other cuursor process except ourselves and our parent.
+/// any other beezl (or old cuursor) process except ourselves and our parent.
 fn stop_running() {
-    unsafe {
-        if let Ok(h) = FindWindowW(DAEMON_CLASS, None) {
-            let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
-            let start = Instant::now();
-            while FindWindowW(DAEMON_CLASS, None).is_ok() && start.elapsed() < Duration::from_secs(2) {
-                std::thread::sleep(Duration::from_millis(50));
+    for class in [DAEMON_CLASS, w!("cuursor.tray")] {
+        unsafe {
+            if let Ok(h) = FindWindowW(class, None) {
+                let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
+                let start = Instant::now();
+                while FindWindowW(class, None).is_ok() && start.elapsed() < Duration::from_secs(2) {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
             }
         }
     }
@@ -224,7 +260,8 @@ fn stop_running() {
     let parent = std::env::args().skip_while(|a| a != "--parent").nth(1).and_then(|p| p.parse::<u32>().ok());
     for (pid, name) in processes() {
         let n = name.to_ascii_lowercase();
-        if (n == "cuursor.exe" || n == "cuursor-ui.exe") && pid != me && Some(pid) != parent {
+        let ours = ["beezl.exe", "beezl-ui.exe", "cuursor.exe", "cuursor-ui.exe"].contains(&n.as_str());
+        if ours && pid != me && Some(pid) != parent {
             unsafe {
                 if let Ok(h) = OpenProcess(PROCESS_TERMINATE, false, pid) {
                     let _ = TerminateProcess(h, 0);
@@ -253,7 +290,7 @@ fn processes() -> Vec<(u32, String)> {
 
 fn start_menu_link() -> PathBuf {
     let pd = std::env::var_os("ProgramData").unwrap_or_else(|| r"C:\ProgramData".into());
-    PathBuf::from(pd).join(r"Microsoft\Windows\Start Menu\Programs\cuursor.lnk")
+    PathBuf::from(pd).join(r"Microsoft\Windows\Start Menu\Programs\beezl.lnk")
 }
 
 fn shortcut(target: &Path) -> Result<(), String> {
@@ -275,8 +312,8 @@ fn shortcut(target: &Path) -> Result<(), String> {
 }
 
 fn register_uninstall(dir: &Path) -> Result<(), String> {
-    let ui = dir.join("cuursor-ui.exe");
-    let size_kb = ["cuursor.exe", "cuursor-ui.exe"]
+    let ui = dir.join("beezl-ui.exe");
+    let size_kb = ["beezl.exe", "beezl-ui.exe"]
         .iter()
         .filter_map(|f| std::fs::metadata(dir.join(f)).ok())
         .map(|m| m.len() / 1024)
@@ -308,12 +345,12 @@ fn register_uninstall(dir: &Path) -> Result<(), String> {
             let n = wide(name);
             let _ = RegSetValueExW(key, PCWSTR(n.as_ptr()), None, REG_DWORD, Some(&value.to_le_bytes()));
         };
-        set_str("DisplayName", "cuursor");
+        set_str("DisplayName", "beezl");
         set_str("DisplayVersion", env!("CARGO_PKG_VERSION"));
         set_str("Publisher", "Eugene Staroselets");
-        set_str("URLInfoAbout", "https://github.com/starrrets/cuursor");
+        set_str("URLInfoAbout", "https://github.com/starrrets/beezl");
         set_str("InstallLocation", &dir.to_string_lossy());
-        set_str("DisplayIcon", &format!("{},0", dir.join("cuursor.exe").display()));
+        set_str("DisplayIcon", &format!("{},0", dir.join("beezl.exe").display()));
         set_str("UninstallString", &format!("\"{}\" --uninstall", ui.display()));
         set_dword("NoModify", 1);
         set_dword("NoRepair", 1);

@@ -1,4 +1,4 @@
-# cuursor
+# beezl
 
 **English** · [Русский](README.ru.md)
 
@@ -7,18 +7,21 @@ size and resolution smoothly: no jumps and no getting stuck at the edges.
 Written in Rust. The background process is under 1 MB and does no work until
 the cursor reaches the edge of a screen.
 
+Up to v0.3 the app was called **cuursor**; installing beezl over it moves
+your settings and removes the old version.
+
 ## Download
 
-[**Download cuursor-setup.exe**](https://github.com/starrrets/cuursor/releases/latest/download/cuursor-setup.exe)
+[**Download beezl-setup.exe**](../../releases/latest/download/beezl-setup.exe)
 (latest version; all versions are on the
-[Releases](https://github.com/starrrets/cuursor/releases) page).
+[Releases](../../releases) page).
 
-1. Run `cuursor-setup.exe` and click **Install**. Windows asks for
-   administrator rights once: cuursor needs them to keep working over windows
+1. Run `beezl-setup.exe` and click **Install**. Windows asks for
+   administrator rights once: beezl needs them to keep working over windows
    that run as administrator (Task Manager, installers, consoles).
    If Windows shows "Windows protected your PC", click
    **More info → Run anyway** (see [Code signing](#code-signing)).
-2. Done: the icon appears in the system tray, and cuursor starts with Windows.
+2. Done: the icon appears in the system tray, and beezl starts with Windows.
 
 Uninstall it like any other app: **Settings → Apps**.
 
@@ -32,7 +35,7 @@ Uninstall it like any other app: **Settings → Apps**.
   could not detect it).
 
 Arrange your monitors in **Settings → System → Display** the way they stand on
-your desk (for example, aligned by their bottom edges). cuursor takes the
+your desk (for example, aligned by their bottom edges). beezl takes the
 alignment from there.
 
 ## How it works
@@ -42,7 +45,7 @@ have different pixel density (say, a 24" Full HD next to a 27" 1440p), the
 cursor jumps several centimeters at the border and gets stuck on part of the
 edge.
 
-cuursor installs a low-level mouse hook (`WH_MOUSE_LL`) on its own
+beezl installs a low-level mouse hook (`WH_MOUSE_LL`) on its own
 high-priority thread. While the cursor is inside a monitor, the hook does one
 comparison and lets the event through. At a border the position is converted to
 millimeters (the panel size comes from the monitor's EDID), and the cursor is
@@ -60,24 +63,24 @@ graphics tablets).
 
 Builds are not code-signed yet, so SmartScreen warns on first run. Every
 release is built from source by
-[GitHub Actions](https://github.com/starrrets/cuursor/actions), and
-`SHA256SUMS.txt` next to `cuursor-setup.exe` lists its checksum. cuursor never
+[GitHub Actions](../../actions), and
+`SHA256SUMS.txt` next to `beezl-setup.exe` lists its checksum. beezl never
 sends anything over the network.
 
 ## Building from source
 
 ```powershell
 winget install Rustlang.Rustup
-cargo build --release      # target\release\cuursor.exe and cuursor-ui.exe
+cargo build --release      # target\release\beezl.exe and beezl-ui.exe
 cargo test                 # geometry tests
 ```
 
-The installer is `cuursor-ui.exe` with `cuursor.exe` embedded:
+The installer is `beezl-ui.exe` with `beezl.exe` embedded:
 
 ```powershell
-mkdir target\payload; copy target\release\cuursor.exe target\payload\
-$env:CUURSOR_PAYLOAD = "$PWD\target\payload\cuursor.exe"
-cargo build --release --bin cuursor-ui   # target\release\cuursor-ui.exe = cuursor-setup.exe
+mkdir target\payload; copy target\release\beezl.exe target\payload\
+$env:BEEZL_PAYLOAD = "$PWD\target\payload\beezl.exe"
+cargo build --release --bin beezl-ui   # target\release\beezl-ui.exe = beezl-setup.exe
 ```
 
 A new version is released by bumping `version` in `Cargo.toml`: when that
@@ -88,11 +91,11 @@ reaches `main`, CI tags it and publishes the release.
 * `src/layout.rs`: geometry, meaning which edges touch and where the cursor
   goes (no Windows dependencies, covered by tests).
 * `src/edid.rs`: EDID parsing (physical size and model).
-* `src/config.rs`: settings (`%APPDATA%\cuursor\config.toml`).
+* `src/config.rs`: settings (`%APPDATA%\beezl\config.toml`).
 * `src/sys/`: shared Windows code: monitors, autostart through Task Scheduler.
-* `src/main.rs`, `src/win/`: the background process `cuursor.exe` (mouse hook
+* `src/main.rs`, `src/win/`: the background process `beezl.exe` (mouse hook
   and tray icon).
-* `src/ui/`, `ui/app.slint`: the `cuursor-ui.exe` windows (tray panel and
+* `src/ui/`, `ui/app.slint`: the `beezl-ui.exe` windows (tray panel and
   settings, [Slint](https://slint.dev), Fluent style, light and dark theme).
 * `src/ui/install.rs`: install and uninstall (the custom Slint installer).
 * `vendor/i-slint-backend-winit`: a copy of Slint's winit backend with a fix

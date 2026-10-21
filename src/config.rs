@@ -1,4 +1,4 @@
-//! Settings, stored as `%APPDATA%\cuursor\config.toml` and edited through the
+//! Settings, stored as `%APPDATA%\beezl\config.toml` and edited through the
 //! settings window.
 
 use serde::{Deserialize, Serialize};
