@@ -116,7 +116,7 @@ jobs:
           generate_release_notes: true
           body: |
             **[Download beezl-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ steps.rel.outputs.tag }}/beezl-setup.exe)**, run it and click Install.
-            If SmartScreen says "Windows protected your PC", click **More info → Run anyway** (see [Code signing](https://github.com/${{ github.repository }}#code-signing)).
+            If SmartScreen says "Windows protected your PC", click **More info → Run anyway**.
 
             [![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
           make_latest: true
