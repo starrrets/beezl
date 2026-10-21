@@ -119,6 +119,12 @@ fn run_key() -> Option<()> {
     (err == ERROR_SUCCESS).then_some(())
 }
 
+/// Drop the per-user Run entry (portable and v0.1 copies); the logon task
+/// replaces it.
+pub fn remove_run_key() {
+    set_run_key(false);
+}
+
 fn set_run_key(on: bool) {
     unsafe {
         if !on {

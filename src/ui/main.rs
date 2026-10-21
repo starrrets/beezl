@@ -1,6 +1,6 @@
-//! cuursor-ui: the tray flyout (`--flyout L T R B`, the tray icon rectangle)
-//! and the settings window (`--settings`). Started on demand by the
-//! background process and gone when closed.
+//! cuursor-ui: the tray flyout (`--flyout L T R B`, the tray icon rectangle),
+//! the settings window (`--settings`), and setup: run from anywhere but the
+//! install folder it is the installer, `--uninstall` removes the app.
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
@@ -16,8 +16,13 @@ fn main() {
 }
 
 #[cfg(windows)]
+mod install;
+
+#[cfg(windows)]
 mod app {
     slint::include_modules!();
+
+    use crate::install;
 
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -45,6 +50,30 @@ mod app {
 
     pub fn run() {
         let args: Vec<String> = std::env::args().skip(1).collect();
+        let has = |a: &str| args.iter().any(|x| x == a);
+
+        // Elevated workers of the setup and uninstall windows: no UI.
+        if has("--do-install") || has("--do-uninstall") {
+            std::process::exit(install::worker(has("--do-install")));
+        }
+        let mode = if has("--uninstall") {
+            RunMode::Uninstall
+        } else if args.is_empty() && install::has_payload() && !install::running_installed() {
+            RunMode::Setup
+        } else {
+            RunMode::App
+        };
+        // The uninstaller removes its own folder, so it runs from a temp copy.
+        if mode == RunMode::Uninstall && install::running_installed() {
+            if let Ok(exe) = std::env::current_exe() {
+                let tmp = std::env::temp_dir().join("cuursor-uninstall.exe");
+                if std::fs::copy(&exe, &tmp).is_ok()
+                    && std::process::Command::new(&tmp).arg("--uninstall").spawn().is_ok()
+                {
+                    return;
+                }
+            }
+        }
         let flyout_rect = match args.first().map(String::as_str) {
             Some("--flyout") => {
                 let n: Vec<i32> = args[1..].iter().filter_map(|s| s.parse().ok()).collect();
@@ -73,11 +102,133 @@ mod app {
             return;
         }
 
+        match mode {
+            RunMode::Setup => return setup(),
+            RunMode::Uninstall => return uninstall(),
+            RunMode::App => {}
+        }
         let cfg = Rc::new(RefCell::new(sys::load_config()));
         match flyout_rect {
             Some(r) => flyout(cfg, r),
             None => settings(cfg),
         }
+    }
+
+    #[derive(PartialEq)]
+    enum RunMode {
+        App,
+        Setup,
+        Uninstall,
+    }
+
+    fn setup_strings(g: SetupStrings<'_>) {
+        if !sys::is_russian() {
+            return;
+        }
+        g.set_tagline("Плавный переход курсора между мониторами разного размера".into());
+        g.set_install("Установить".into());
+        g.set_update("Обновить".into());
+        g.set_installing("Установка…".into());
+        g.set_done("cuursor установлен".into());
+        g.set_done_desc("Он уже работает в трее и будет запускаться вместе с Windows.".into());
+        g.set_open("Открыть настройки".into());
+        g.set_close("Закрыть".into());
+        g.set_failed("Не получилось".into());
+        g.set_retry("Попробовать снова".into());
+        g.set_uninstall_q("Удалить cuursor?".into());
+        g.set_uninstall_desc("Программа и её настройки будут удалены с компьютера.".into());
+        g.set_uninstall("Удалить".into());
+        g.set_cancel("Отмена".into());
+        g.set_uninstalling("Удаление…".into());
+        g.set_uninstalled("cuursor удалён".into());
+    }
+
+    fn worker_args(verb: &str) -> String {
+        format!("{verb} --parent {}", std::process::id())
+    }
+
+    fn setup() {
+        let ui = Setup::new().expect("setup");
+        setup_strings(ui.global::<SetupStrings>());
+        let version = env!("CARGO_PKG_VERSION");
+        ui.set_version(version.into());
+        let dir = install::install_dir();
+        let details = match install::installed_version() {
+            Some(old) if old == version => {
+                ui.set_is_update(true);
+                format!("{} {version} · {}", tr("Уже установлена версия", "Already installed:"), dir.display())
+            }
+            Some(old) => {
+                ui.set_is_update(true);
+                format!("{} {old} → {version} · {}", tr("Обновление", "Update"), dir.display())
+            }
+            None => format!("{} {}", tr("Папка установки:", "Install folder:"), dir.display()),
+        };
+        ui.set_details(details.into());
+
+        {
+            let weak = ui.as_weak();
+            ui.on_install(move || {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_page(1);
+                }
+                let weak = weak.clone();
+                std::thread::spawn(move || {
+                    let res = install::run_elevated(&worker_args("--do-install"));
+                    if res.is_ok() {
+                        // Start it the normal way; it relaunches itself through the
+                        // logon task to run elevated.
+                        let _ = std::process::Command::new(install::install_dir().join("cuursor.exe")).spawn();
+                    }
+                    let _ = weak.upgrade_in_event_loop(move |ui| match res {
+                        Ok(()) => ui.set_page(2),
+                        Err(e) => {
+                            ui.set_error_text(e.into());
+                            ui.set_page(3);
+                        }
+                    });
+                });
+            });
+        }
+        ui.on_open_settings(|| {
+            unsafe {
+                let _ = AllowSetForegroundWindow(ASFW_ANY);
+            }
+            let _ = std::process::Command::new(install::install_dir().join("cuursor-ui.exe")).arg("--settings").spawn();
+            let _ = slint::quit_event_loop();
+        });
+        ui.on_dismiss(|| {
+            let _ = slint::quit_event_loop();
+        });
+        let _ = ui.run();
+    }
+
+    fn uninstall() {
+        let ui = Uninstall::new().expect("uninstall");
+        setup_strings(ui.global::<SetupStrings>());
+        {
+            let weak = ui.as_weak();
+            ui.on_uninstall(move || {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_page(1);
+                }
+                let weak = weak.clone();
+                std::thread::spawn(move || {
+                    let res = install::run_elevated(&worker_args("--do-uninstall"));
+                    let _ = weak.upgrade_in_event_loop(move |ui| match res {
+                        Ok(()) => ui.set_page(2),
+                        Err(e) => {
+                            ui.set_error_text(e.into());
+                            ui.set_page(3);
+                        }
+                    });
+                });
+            });
+        }
+        ui.on_dismiss(|| {
+            let _ = slint::quit_event_loop();
+        });
+        let _ = ui.run();
     }
 
     macro_rules! apply_strings {

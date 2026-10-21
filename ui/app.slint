@@ -1,7 +1,7 @@
 // cuursor UI: tray flyout and settings window (Fluent style, follows the
 // Windows light/dark theme).
 
-import { Switch, Button, ComboBox, LineEdit, Palette, ScrollView } from "std-widgets.slint";
+import { Switch, Button, ComboBox, LineEdit, Palette, ScrollView, ProgressIndicator } from "std-widgets.slint";
 
 export struct MonitorTile {
     x: length,
@@ -358,6 +358,208 @@ export component Settings inherits Window {
                             color: m.warn ? #d83b01 : Palette.foreground.with-alpha(0.6);
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+export global SetupStrings {
+    in property <string> tagline: "Seamless cursor movement between monitors of different size";
+    in property <string> install: "Install";
+    in property <string> update: "Update";
+    in property <string> installing: "Installing…";
+    in property <string> done: "cuursor is installed";
+    in property <string> done-desc: "It is running in the system tray and will start with Windows.";
+    in property <string> open: "Open settings";
+    in property <string> close: "Close";
+    in property <string> failed: "Installation failed";
+    in property <string> retry: "Try again";
+    in property <string> uninstall-q: "Remove cuursor?";
+    in property <string> uninstall-desc: "The app and its settings will be removed from this computer.";
+    in property <string> uninstall: "Remove";
+    in property <string> cancel: "Cancel";
+    in property <string> uninstalling: "Removing…";
+    in property <string> uninstalled: "cuursor has been removed";
+}
+
+// Shared frame of the setup and uninstall windows: icon, title, text, and
+// a button row at the bottom.
+component SetupPage inherits VerticalLayout {
+    in property <string> heading;
+    in property <string> text;
+    in property <bool> busy;
+    in property <bool> success;
+    in property <bool> error;
+    padding: 32px;
+    spacing: 0px;
+
+    Rectangle {
+        height: 84px;
+        Image {
+            x: 0;
+            source: @image-url("../assets/icon.png");
+            width: 72px;
+            height: 72px;
+            opacity: root.busy ? 0.6 : 1.0;
+        }
+        if root.success: Rectangle {
+            x: 50px;
+            y: 50px;
+            width: 26px;
+            height: 26px;
+            border-radius: 13px;
+            background: #0f7b0f;
+            border-width: 2px;
+            border-color: Palette.background;
+            Text {
+                text: "✓";
+                color: white;
+                font-size: 15px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+    Rectangle { height: 16px; }
+    Text {
+        text: root.heading;
+        font-size: 28px;
+        font-weight: 600;
+        color: root.error ? #c42b1c : Palette.foreground;
+        wrap: word-wrap;
+    }
+    Rectangle { height: 8px; }
+    Text {
+        text: root.text;
+        font-size: 14px;
+        color: Palette.foreground.with-alpha(0.7);
+        wrap: word-wrap;
+    }
+    Rectangle { vertical-stretch: 1; }
+    if root.busy: ProgressIndicator {
+        indeterminate: true;
+        height: 4px;
+    }
+    if root.busy: Rectangle { height: 26px; }
+    @children
+}
+
+export component Setup inherits Window {
+    // 0 welcome, 1 installing, 2 done, 3 error
+    in-out property <int> page;
+    in property <string> version;
+    in property <string> details;
+    in property <bool> is-update;
+    in property <string> error-text;
+    callback install();
+    callback open-settings();
+    callback dismiss();
+
+    title: "cuursor";
+    icon: @image-url("../assets/icon.png");
+    width: 540px;
+    height: 380px;
+    background: Palette.background;
+
+    SetupPage {
+        heading: root.page == 0 ? "cuursor " + root.version
+            : root.page == 1 ? SetupStrings.installing
+            : root.page == 2 ? SetupStrings.done
+            : SetupStrings.failed;
+        text: root.page == 0 ? SetupStrings.tagline
+            : root.page == 2 ? SetupStrings.done-desc
+            : root.page == 3 ? root.error-text
+            : "";
+        busy: root.page == 1;
+        success: root.page == 2;
+        error: root.page == 3;
+
+        if root.page == 0: Text {
+            text: root.details;
+            font-size: 12px;
+            color: Palette.foreground.with-alpha(0.5);
+        }
+        if root.page == 0: Rectangle { height: 16px; }
+
+        if root.page != 1: HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            if root.page == 0 || root.page == 3: Button {
+                text: root.page == 3 ? SetupStrings.retry : (root.is-update ? SetupStrings.update : SetupStrings.install);
+                primary: true;
+                min-width: 140px;
+                clicked => {
+                    root.install();
+                }
+            }
+            if root.page == 2: Button {
+                text: SetupStrings.open;
+                min-width: 140px;
+                clicked => {
+                    root.open-settings();
+                }
+            }
+            if root.page == 2: Button {
+                text: SetupStrings.close;
+                primary: true;
+                min-width: 100px;
+                clicked => {
+                    root.dismiss();
+                }
+            }
+        }
+    }
+}
+
+export component Uninstall inherits Window {
+    // 0 confirm, 1 removing, 2 done, 3 error
+    in-out property <int> page;
+    in property <string> error-text;
+    callback uninstall();
+    callback dismiss();
+
+    title: "cuursor";
+    icon: @image-url("../assets/icon.png");
+    width: 540px;
+    height: 380px;
+    background: Palette.background;
+
+    SetupPage {
+        heading: root.page == 0 ? SetupStrings.uninstall-q
+            : root.page == 1 ? SetupStrings.uninstalling
+            : root.page == 2 ? SetupStrings.uninstalled
+            : SetupStrings.failed;
+        text: root.page == 0 ? SetupStrings.uninstall-desc : root.page == 3 ? root.error-text : "";
+        busy: root.page == 1;
+        success: root.page == 2;
+        error: root.page == 3;
+
+        if root.page != 1: HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            if root.page == 0: Button {
+                text: SetupStrings.cancel;
+                min-width: 100px;
+                clicked => {
+                    root.dismiss();
+                }
+            }
+            if root.page == 0: Button {
+                text: SetupStrings.uninstall;
+                primary: true;
+                min-width: 120px;
+                clicked => {
+                    root.uninstall();
+                }
+            }
+            if root.page >= 2: Button {
+                text: SetupStrings.close;
+                primary: true;
+                min-width: 100px;
+                clicked => {
+                    root.dismiss();
                 }
             }
         }

@@ -1,6 +1,6 @@
 [package]
 name = "cuursor"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Seamless cursor movement between monitors of different size and resolution on Windows"
 license = "MIT"
@@ -10,10 +10,12 @@ serde = { version = "1", features = ["derive"] }
 toml = { version = "1", default-features = false, features = ["parse", "display", "serde", "std"] }
 
 [target.'cfg(windows)'.dependencies]
+miniz_oxide = "0.8"
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software", "unstable-winit-030"] }
 
 [build-dependencies]
 embed-resource = "3"
+miniz_oxide = "0.8"
 slint-build = "1.18"
 
 [target.'cfg(windows)'.dependencies.windows]
@@ -23,6 +25,8 @@ features = [
     "Win32_Globalization",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
     "Win32_System_SystemInformation",
@@ -48,3 +52,8 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Slint's winit backend divides by the monitor refresh rate, which Windows can
+# report as 0 Hz for virtual/remote displays. Patched copy until upstream fixes it.
+[patch.crates-io]
+i-slint-backend-winit = { path = "vendor/i-slint-backend-winit" }

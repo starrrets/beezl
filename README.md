@@ -53,7 +53,14 @@ cuursor ставит низкоуровневый хук мыши (`WH_MOUSE_LL`
 winget install Rustlang.Rustup
 cargo build --release      # target\release\cuursor.exe и cuursor-ui.exe
 cargo test                 # тесты геометрии
-iscc /DAppVersion=0.2.0 installer\cuursor.iss   # установщик (Inno Setup 6)
+```
+
+Установщик: это `cuursor-ui.exe` со встроенным `cuursor.exe`.
+
+```powershell
+mkdir target\payload; copy target\release\cuursor.exe target\payload\
+$env:CUURSOR_PAYLOAD = "$PWD\target\payload\cuursor.exe"
+cargo build --release --bin cuursor-ui   # target\release\cuursor-ui.exe = cuursor-setup.exe
 ```
 
 ## Устройство кода
@@ -66,7 +73,9 @@ iscc /DAppVersion=0.2.0 installer\cuursor.iss   # установщик (Inno Set
 * `src/main.rs`, `src/win/`: фоновый процесс `cuursor.exe` (хук мыши и трей).
 * `src/ui/`, `ui/app.slint`: окна `cuursor-ui.exe` (панель трея и настройки,
   [Slint](https://slint.dev), стиль Fluent, светлая и тёмная тема).
-* `installer/cuursor.iss`: установщик.
+* `src/ui/install.rs`: установка и удаление (собственный установщик на Slint).
+* `vendor/i-slint-backend-winit`: копия бэкенда Slint с исправлением деления на
+  ноль, когда Windows сообщает частоту монитора 0 Гц.
 
 ## Похожие проекты
 
