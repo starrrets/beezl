@@ -6,7 +6,7 @@ unsigned and CI skips the signing steps.
 
 ## 1. Apply
 
-Apply at <https://signpath.org/apply> with this repository. SignPath
+Apply at <https://signpath.org/apply> with this repository (the README already has the required "Code signing policy" section). SignPath
 Foundation checks that the project is open source (MIT), actively maintained,
 already has a release, and has some reputation, so apply after a few releases
 and some stars or downloads. When accepted, add the "Code signing policy"
