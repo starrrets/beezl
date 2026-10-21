@@ -1,61 +1,78 @@
 # cuursor
 
-Программа для Windows, которая делает переход курсора между мониторами разного
-размера и разрешения плавным: без прыжков и залипаний на краях. Написана на
-Rust. Фоновый процесс весит меньше 1 МБ и не делает лишней работы, пока курсор
-не пересекает край экрана.
+**English** · [Русский](README.ru.md)
 
-## Установка
+A Windows app that makes the mouse cursor cross between monitors of different
+size and resolution smoothly: no jumps and no getting stuck at the edges.
+Written in Rust. The background process is under 1 MB and does no work until
+the cursor reaches the edge of a screen.
 
-1. Скачайте `cuursor-setup.exe` со страницы [Releases](../../releases)
-   (или артефакт `cuursor-setup` последней сборки в [Actions](../../actions)).
-2. Запустите и нажмите «Установить». Windows один раз попросит права
-   администратора: они нужны, чтобы cuursor работал и поверх окон, запущенных
-   от администратора (диспетчер задач, установщики, консоли).
-3. Готово: значок появится в трее, cuursor будет запускаться вместе с Windows.
+## Download
 
-Удаляется как обычная программа: «Параметры → Приложения».
+[**Download cuursor-setup.exe**](https://github.com/starrrets/cuursor/releases/latest/download/cuursor-setup.exe)
+(latest version; all versions are on the
+[Releases](https://github.com/starrrets/cuursor/releases) page).
 
-## Использование
+1. Run `cuursor-setup.exe` and click **Install**. Windows asks for
+   administrator rights once: cuursor needs them to keep working over windows
+   that run as administrator (Task Manager, installers, consoles).
+   If Windows shows "Windows protected your PC", click
+   **More info → Run anyway** (see [Code signing](#code-signing)).
+2. Done: the icon appears in the system tray, and cuursor starts with Windows.
 
-* **Клик по значку в трее** открывает панель: включить/выключить и схема
-  мониторов.
-* **Правый клик**: «Настройки» и «Выход».
-* В **настройках** есть только нужное: включение, автозапуск, способ перехода,
-  выравнивание мониторов и диагональ каждого монитора (если Windows не смогла
-  её определить).
+Uninstall it like any other app: **Settings → Apps**.
 
-Мониторы стоит расставить в «Параметры → Система → Дисплей» так, как они стоят
-на столе (например, по нижнему краю). cuursor возьмёт выравнивание оттуда.
+## Usage
 
-## Как это работает
+* **Click the tray icon** to open a panel with an on/off switch and a map of
+  your monitors.
+* **Right-click** for **Settings** and **Exit**.
+* **Settings** has only what matters: on/off, start with Windows, crossing
+  method, monitor alignment, and the diagonal of each monitor (in case Windows
+  could not detect it).
 
-Windows стыкует мониторы по пикселям, а не по сантиметрам. Если у соседних
-экранов разная плотность пикселей (например, 24" Full HD и 27" 2K), курсор на
-границе прыгает на несколько сантиметров, а на части края упирается.
+Arrange your monitors in **Settings → System → Display** the way they stand on
+your desk (for example, aligned by their bottom edges). cuursor takes the
+alignment from there.
 
-cuursor ставит низкоуровневый хук мыши (`WH_MOUSE_LL`) на отдельном потоке с
-высоким приоритетом. Пока курсор внутри монитора, хук делает одно сравнение и
-пропускает событие. На границе позиция переводится в миллиметры (размер панели
-берётся из EDID монитора), и курсор ставится в ту же физическую точку соседнего
-экрана. Участки края, напротив которых физически ничего нет, прижимаются к
-ближайшей точке соседа, поэтому курсор не застревает.
+## How it works
 
-Работает с любым числом мониторов и любой раскладкой (слева, справа, сверху,
-снизу), с разным масштабированием, с повёрнутыми экранами, подхватывает
-подключение и отключение мониторов на лету. Не вмешивается, когда игра или
-программа ограничила курсор своим окном, и в синтетический ввод (удалённый
-рабочий стол, графические планшеты).
+Windows joins monitors by pixels, not by centimeters. When neighbouring screens
+have different pixel density (say, a 24" Full HD next to a 27" 1440p), the
+cursor jumps several centimeters at the border and gets stuck on part of the
+edge.
 
-## Сборка из исходников
+cuursor installs a low-level mouse hook (`WH_MOUSE_LL`) on its own
+high-priority thread. While the cursor is inside a monitor, the hook does one
+comparison and lets the event through. At a border the position is converted to
+millimeters (the panel size comes from the monitor's EDID), and the cursor is
+placed at the same physical point on the neighbouring screen. Parts of an edge
+with nothing physically next to them are clamped to the nearest point of the
+neighbour, so the cursor never gets stuck.
+
+It works with any number of monitors in any arrangement (left, right, above,
+below), with mixed scaling and rotated screens, and picks up monitors being
+plugged in or out on the fly. It stays out of the way when a game or app
+confines the cursor to its window, and ignores synthetic input (Remote Desktop,
+graphics tablets).
+
+## Code signing
+
+Builds are not code-signed yet, so SmartScreen warns on first run. Every
+release is built from source by
+[GitHub Actions](https://github.com/starrrets/cuursor/actions), and
+`SHA256SUMS.txt` next to `cuursor-setup.exe` lists its checksum. cuursor never
+sends anything over the network.
+
+## Building from source
 
 ```powershell
 winget install Rustlang.Rustup
-cargo build --release      # target\release\cuursor.exe и cuursor-ui.exe
-cargo test                 # тесты геометрии
+cargo build --release      # target\release\cuursor.exe and cuursor-ui.exe
+cargo test                 # geometry tests
 ```
 
-Установщик: это `cuursor-ui.exe` со встроенным `cuursor.exe`.
+The installer is `cuursor-ui.exe` with `cuursor.exe` embedded:
 
 ```powershell
 mkdir target\payload; copy target\release\cuursor.exe target\payload\
@@ -63,23 +80,37 @@ $env:CUURSOR_PAYLOAD = "$PWD\target\payload\cuursor.exe"
 cargo build --release --bin cuursor-ui   # target\release\cuursor-ui.exe = cuursor-setup.exe
 ```
 
-## Устройство кода
+A new version is released by bumping `version` in `Cargo.toml`: when that
+reaches `main`, CI tags it and publishes the release.
 
-* `src/layout.rs`: геометрия, какие края соприкасаются и куда переходит курсор
-  (без зависимостей от Windows, покрыто тестами).
-* `src/edid.rs`: разбор EDID (физический размер и модель).
-* `src/config.rs`: настройки (`%APPDATA%\cuursor\config.toml`).
-* `src/sys/`: общее для Windows: мониторы, автозапуск через планировщик задач.
-* `src/main.rs`, `src/win/`: фоновый процесс `cuursor.exe` (хук мыши и трей).
-* `src/ui/`, `ui/app.slint`: окна `cuursor-ui.exe` (панель трея и настройки,
-  [Slint](https://slint.dev), стиль Fluent, светлая и тёмная тема).
-* `src/ui/install.rs`: установка и удаление (собственный установщик на Slint).
-* `vendor/i-slint-backend-winit`: копия бэкенда Slint с исправлением деления на
-  ноль, когда Windows сообщает частоту монитора 0 Гц.
+## Code layout
 
-## Похожие проекты
+* `src/layout.rs`: geometry, meaning which edges touch and where the cursor
+  goes (no Windows dependencies, covered by tests).
+* `src/edid.rs`: EDID parsing (physical size and model).
+* `src/config.rs`: settings (`%APPDATA%\cuursor\config.toml`).
+* `src/sys/`: shared Windows code: monitors, autostart through Task Scheduler.
+* `src/main.rs`, `src/win/`: the background process `cuursor.exe` (mouse hook
+  and tray icon).
+* `src/ui/`, `ui/app.slint`: the `cuursor-ui.exe` windows (tray panel and
+  settings, [Slint](https://slint.dev), Fluent style, light and dark theme).
+* `src/ui/install.rs`: install and uninstall (the custom Slint installer).
+* `vendor/i-slint-backend-winit`: a copy of Slint's winit backend with a fix
+  for a division by zero when Windows reports a 0 Hz monitor refresh rate.
 
-* [LittleBigMouse](https://github.com/mgth/LittleBigMouse): тот же подход
-  (физическая раскладка по EDID), C#/C++.
-* [MouseUnSnag](https://github.com/MouseUnSnag/MouseUnSnag): убирает только
-  залипание на краях.
+## Similar projects
+
+* [LittleBigMouse](https://github.com/mgth/LittleBigMouse): the same approach
+  (physical layout from EDID), C#/C++.
+* [MouseUnSnag](https://github.com/MouseUnSnag/MouseUnSnag): only removes
+  sticking at the edges.
+
+## Credits
+
+The UI is built with [Slint](https://slint.dev) (Royalty-free 2.0 license).
+
+[![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
+
+## License
+
+[MIT](LICENSE)
