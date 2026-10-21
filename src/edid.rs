@@ -17,7 +17,7 @@ pub fn parse(data: &[u8]) -> Option<Edid> {
     let mut dtd_mm = None;
     let mut model = String::new();
 
-    for d in data[54..126].chunks_exact(18) {
+    for d in data[54..126].as_chunks::<18>().0 {
         if d[0] != 0 || d[1] != 0 {
             // Detailed timing descriptor; the first one is the preferred mode.
             if dtd_mm.is_none() {
