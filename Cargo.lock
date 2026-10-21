@@ -746,9 +746,10 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
 name = "cuursor"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "embed-resource",
+ "miniz_oxide 0.8.9",
  "serde",
  "slint",
  "slint-build",
@@ -1551,8 +1552,6 @@ dependencies = [
 [[package]]
 name = "i-slint-backend-winit"
 version = "1.18.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dae4fcf1b19e9cb109984d2af87d2b9485388c619265bff71dd523133888bee2"
 dependencies = [
  "arboard",
  "block2 0.6.2",

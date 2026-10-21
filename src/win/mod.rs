@@ -101,6 +101,10 @@ pub fn run() {
             return;
         }
     }
+    if from_task {
+        // An older portable copy must not start next to the installed one.
+        autostart::remove_run_key();
+    }
     let manual = autostart::take_launch_flag();
     let first_run = !sys::config_path().exists();
     let cfg = sys::load_config();
