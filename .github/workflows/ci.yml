@@ -55,12 +55,12 @@ jobs:
       # cuursor.exe is signed too.
       - id: unsigned-daemon
         if: steps.rel.outputs.sign == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unsigned-daemon
           path: target/payload/cuursor.exe
       - if: steps.rel.outputs.sign == 'true'
-        uses: signpath/github-action-submit-signing-request@v1
+        uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -81,12 +81,12 @@ jobs:
 
       - id: unsigned-setup
         if: steps.rel.outputs.sign == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unsigned-setup
           path: target/installer/cuursor-setup.exe
       - if: steps.rel.outputs.sign == 'true'
-        uses: signpath/github-action-submit-signing-request@v1
+        uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -101,13 +101,14 @@ jobs:
         run: |
           $hash = (Get-FileHash target\installer\cuursor-setup.exe -Algorithm SHA256).Hash.ToLower()
           "$hash  cuursor-setup.exe" | Set-Content -NoNewline -Encoding ascii target\installer\SHA256SUMS.txt
-      - uses: actions/upload-artifact@v4
+      # Plain .exe download from the run page, not a zip.
+      - uses: actions/upload-artifact@v7
         with:
-          name: cuursor-setup
           path: target/installer/cuursor-setup.exe
+          archive: false
       - name: Release
         if: steps.rel.outputs.release == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.rel.outputs.tag }}
           name: cuursor ${{ steps.rel.outputs.version }}
