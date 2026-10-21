@@ -26,6 +26,12 @@ impl Rect {
         x >= self.left && x < self.right && y >= self.top && y < self.bottom
     }
 
+    /// Inside and at least `margin` pixels away from every edge.
+    #[inline(always)]
+    pub fn contains_inset(&self, x: i32, y: i32, margin: i32) -> bool {
+        x >= self.left + margin && x < self.right - margin && y >= self.top + margin && y < self.bottom - margin
+    }
+
     pub fn width(&self) -> i32 {
         self.right - self.left
     }
@@ -310,6 +316,14 @@ mod tests {
             Decision::Move(x, y) => (x, y),
             Decision::Pass => panic!("expected Move, got Pass"),
         }
+    }
+
+    #[test]
+    fn inset() {
+        let r = Rect::new(0, 0, 100, 100);
+        assert!(r.contains_inset(50, 50, 10));
+        assert!(!r.contains_inset(5, 50, 10));
+        assert!(!r.contains_inset(50, 95, 10));
     }
 
     #[test]

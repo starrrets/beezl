@@ -32,6 +32,8 @@ static THREAD_ID: AtomicU32 = AtomicU32::new(0);
 static THREAD: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 const MSG_UPDATE: u32 = WM_APP + 1;
+/// Larger than any single mouse event's travel when crossing an edge.
+const EDGE_MARGIN: i32 = 128;
 
 struct State {
     p: Params,
@@ -63,9 +65,13 @@ impl State {
     fn handle(&mut self, info: &MSLLHOOKSTRUCT) -> Option<(i32, i32)> {
         let (x, y) = (info.pt.x, info.pt.y);
         let layout = &self.p.layout;
-        // Fast path: still on the same screen. This is almost every event.
+        // Fast path: well inside the cached screen. This is almost every event.
+        // Near an edge we always re-check the real position: the cache goes
+        // stale when someone else teleports the cursor with SetCursorPos
+        // (the hook never sees that), and a crossing would then look like a
+        // move within the old screen.
         match layout.screens.get(self.cur) {
-            Some(s) if s.rect.contains(x, y) => return None,
+            Some(s) if s.rect.contains_inset(x, y, EDGE_MARGIN) => return None,
             None => return None,
             _ => {}
         }
