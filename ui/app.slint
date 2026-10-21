@@ -1,0 +1,365 @@
+// cuursor UI: tray flyout and settings window (Fluent style, follows the
+// Windows light/dark theme).
+
+import { Switch, Button, ComboBox, LineEdit, Palette, ScrollView } from "std-widgets.slint";
+
+export struct MonitorTile {
+    x: length,
+    y: length,
+    w: length,
+    h: length,
+    title: string,
+    subtitle: string,
+    primary: bool,
+    warn: bool,
+}
+
+export struct MonitorRow {
+    name: string,
+    detail: string,
+    diagonal: string,
+    hint: string,
+    warn: bool,
+}
+
+export global Strings {
+    in property <string> app: "cuursor";
+    in property <string> on: "On";
+    in property <string> off: "Off";
+    in property <string> smooth: "Seamless cursor";
+    in property <string> smooth-desc: "No jumps or sticking at screen edges";
+    in property <string> settings: "Settings";
+    in property <string> size-warning: "A monitor size is unknown. Set it in Settings.";
+    in property <string> settings-title: "Settings";
+    in property <string> window-title: "cuursor settings";
+    in property <string> general: "General";
+    in property <string> enabled: "Enabled";
+    in property <string> enabled-desc: "Fix cursor movement between monitors";
+    in property <string> autostart: "Start with Windows";
+    in property <string> crossing: "Cursor crossing";
+    in property <string> mode: "Method";
+    in property <[string]> modes: ["By physical size", "Stretch edge to edge"];
+    in property <string> align: "Monitor alignment";
+    in property <string> align-desc: "How the screens stand on your desk";
+    in property <[string]> aligns: ["As in Display settings", "Top edges", "Centers", "Bottom edges"];
+    in property <string> monitors: "Monitors";
+    in property <string> diagonal-desc: "Diagonal, inches";
+}
+
+// Monitors drawn to scale, in the arrangement from Display settings.
+component MonitorMap inherits Rectangle {
+    in property <[MonitorTile]> tiles;
+    for t in tiles: Rectangle {
+        x: t.x;
+        y: t.y;
+        width: t.w;
+        height: t.h;
+        border-radius: 6px;
+        border-width: t.primary ? 2px : 1px;
+        border-color: t.warn ? #d83b01 : (t.primary ? Palette.accent-background : Palette.border.with-alpha(0.5));
+        background: Palette.alternate-background;
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: t.title;
+                horizontal-alignment: center;
+                font-size: 15px;
+                font-weight: 600;
+                color: Palette.foreground;
+            }
+            Text {
+                text: t.subtitle;
+                horizontal-alignment: center;
+                font-size: 11px;
+                color: Palette.foreground.with-alpha(0.65);
+            }
+        }
+    }
+}
+
+component Card inherits Rectangle {
+    background: Palette.alternate-background;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: Palette.border.with-alpha(0.18);
+}
+
+component SettingRow inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> description;
+    padding: 14px;
+    spacing: 12px;
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+        Text {
+            text: root.title;
+            font-size: 14px;
+            color: Palette.foreground;
+            overflow: elide;
+        }
+        if root.description != "": Text {
+            text: root.description;
+            font-size: 12px;
+            color: Palette.foreground.with-alpha(0.65);
+            overflow: elide;
+        }
+    }
+    @children
+}
+
+component SectionTitle inherits Text {
+    font-size: 14px;
+    font-weight: 600;
+    color: Palette.foreground;
+}
+
+export component Flyout inherits Window {
+    in property <[MonitorTile]> tiles;
+    in-out property <bool> enabled;
+    in property <bool> size-warning;
+    callback toggled(bool);
+    callback open-settings();
+    callback dismiss();
+
+    title: Strings.app;
+    icon: @image-url("../assets/icon.png");
+    no-frame: true;
+    always-on-top: true;
+    width: 360px;
+    height: 350px;
+    background: Palette.background;
+
+    Rectangle {
+        border-width: 1px;
+        border-color: Palette.border.with-alpha(0.5);
+    }
+
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.dismiss();
+                return accept;
+            }
+            reject
+        }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            HorizontalLayout {
+                spacing: 8px;
+                Image {
+                    source: @image-url("../assets/icon.png");
+                    width: 22px;
+                    height: 22px;
+                }
+                Text {
+                    text: Strings.app;
+                    font-size: 15px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    color: Palette.foreground;
+                }
+                Rectangle { }
+                Text {
+                    text: root.enabled ? Strings.on : Strings.off;
+                    vertical-alignment: center;
+                    font-size: 12px;
+                    color: root.enabled ? Palette.accent-background : Palette.foreground.with-alpha(0.6);
+                }
+            }
+
+            Card {
+                height: 116px;
+                MonitorMap {
+                    tiles: root.tiles;
+                    width: parent.width;
+                    height: parent.height;
+                }
+            }
+
+            Card {
+                SettingRow {
+                    title: Strings.smooth;
+                    description: Strings.smooth-desc;
+                    Switch {
+                        checked <=> root.enabled;
+                        toggled => {
+                            root.toggled(self.checked);
+                        }
+                    }
+                }
+            }
+
+            if root.size-warning: Text {
+                text: Strings.size-warning;
+                font-size: 12px;
+                color: #d83b01;
+                wrap: word-wrap;
+            }
+
+            Rectangle { }
+
+            HorizontalLayout {
+                alignment: end;
+                Button {
+                    text: Strings.settings;
+                    clicked => {
+                        root.open-settings();
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component Settings inherits Window {
+    in property <[MonitorTile]> tiles;
+    in property <[MonitorRow]> monitors;
+    in-out property <bool> enabled;
+    in-out property <bool> autostart;
+    in-out property <int> mode;
+    in-out property <int> align;
+    callback enabled-toggled(bool);
+    callback autostart-toggled(bool);
+    callback mode-selected(int);
+    callback align-selected(int);
+    callback diagonal-edited(int, string);
+
+    title: Strings.window-title;
+    icon: @image-url("../assets/icon.png");
+    preferred-width: 520px;
+    preferred-height: 680px;
+    min-width: 420px;
+    min-height: 420px;
+    background: Palette.background;
+
+    ScrollView {
+        VerticalLayout {
+            padding: 24px;
+            spacing: 10px;
+            alignment: start;
+
+            Text {
+                text: Strings.settings-title;
+                font-size: 26px;
+                font-weight: 600;
+                color: Palette.foreground;
+            }
+
+            Card {
+                height: 160px;
+                MonitorMap {
+                    tiles: root.tiles;
+                    width: parent.width;
+                    height: parent.height;
+                }
+            }
+
+            SectionTitle {
+                text: Strings.general;
+            }
+
+            Card {
+                VerticalLayout {
+                    SettingRow {
+                        title: Strings.enabled;
+                        description: Strings.enabled-desc;
+                        Switch {
+                            checked <=> root.enabled;
+                            toggled => {
+                                root.enabled-toggled(self.checked);
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: Palette.border.with-alpha(0.15);
+                    }
+
+                    SettingRow {
+                        title: Strings.autostart;
+                        Switch {
+                            checked <=> root.autostart;
+                            toggled => {
+                                root.autostart-toggled(self.checked);
+                            }
+                        }
+                    }
+                }
+            }
+
+            SectionTitle {
+                text: Strings.crossing;
+            }
+
+            Card {
+                VerticalLayout {
+                    SettingRow {
+                        title: Strings.mode;
+                        ComboBox {
+                            width: 230px;
+                            model: Strings.modes;
+                            current-index <=> root.mode;
+                            selected => {
+                                root.mode-selected(self.current-index);
+                            }
+                        }
+                    }
+
+                    if root.mode == 0: Rectangle {
+                        height: 1px;
+                        background: Palette.border.with-alpha(0.15);
+                    }
+
+                    if root.mode == 0: SettingRow {
+                        title: Strings.align;
+                        description: Strings.align-desc;
+                        ComboBox {
+                            width: 230px;
+                            model: Strings.aligns;
+                            current-index <=> root.align;
+                            selected => {
+                                root.align-selected(self.current-index);
+                            }
+                        }
+                    }
+                }
+            }
+
+            SectionTitle {
+                text: Strings.monitors;
+            }
+
+            for m[i] in root.monitors: Card {
+                SettingRow {
+                    title: m.name;
+                    description: m.detail;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        LineEdit {
+                            width: 90px;
+                            text: m.diagonal;
+                            placeholder-text: "24";
+                            horizontal-alignment: right;
+                            edited(value) => {
+                                root.diagonal-edited(i, value);
+                            }
+                        }
+                        Text {
+                            text: m.hint;
+                            font-size: 11px;
+                            horizontal-alignment: right;
+                            color: m.warn ? #d83b01 : Palette.foreground.with-alpha(0.6);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
