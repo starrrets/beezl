@@ -1,4 +1,4 @@
-// cuursor UI: tray flyout and settings window (Fluent style, follows the
+// beezl UI: tray flyout and settings window (Fluent style, follows the
 // Windows light/dark theme).
 
 import { Switch, Button, ComboBox, LineEdit, Palette, ScrollView, ProgressIndicator } from "std-widgets.slint";
@@ -23,7 +23,7 @@ export struct MonitorRow {
 }
 
 export global Strings {
-    in property <string> app: "cuursor";
+    in property <string> app: "beezl";
     in property <string> on: "On";
     in property <string> off: "Off";
     in property <string> smooth: "Seamless cursor";
@@ -31,7 +31,7 @@ export global Strings {
     in property <string> settings: "Settings";
     in property <string> size-warning: "A monitor size is unknown. Set it in Settings.";
     in property <string> settings-title: "Settings";
-    in property <string> window-title: "cuursor settings";
+    in property <string> window-title: "beezl settings";
     in property <string> general: "General";
     in property <string> enabled: "Enabled";
     in property <string> enabled-desc: "Fix cursor movement between monitors";
@@ -369,18 +369,18 @@ export global SetupStrings {
     in property <string> install: "Install";
     in property <string> update: "Update";
     in property <string> installing: "Installing…";
-    in property <string> done: "cuursor is installed";
+    in property <string> done: "beezl is installed";
     in property <string> done-desc: "It is running in the system tray and will start with Windows.";
     in property <string> open: "Open settings";
     in property <string> close: "Close";
     in property <string> failed: "Installation failed";
     in property <string> retry: "Try again";
-    in property <string> uninstall-q: "Remove cuursor?";
+    in property <string> uninstall-q: "Remove beezl?";
     in property <string> uninstall-desc: "The app and its settings will be removed from this computer.";
     in property <string> uninstall: "Remove";
     in property <string> cancel: "Cancel";
     in property <string> uninstalling: "Removing…";
-    in property <string> uninstalled: "cuursor has been removed";
+    in property <string> uninstalled: "beezl has been removed";
 }
 
 // Shared frame of the setup and uninstall windows: icon, title, text, and
@@ -457,14 +457,14 @@ export component Setup inherits Window {
     callback open-settings();
     callback dismiss();
 
-    title: "cuursor";
+    title: "beezl";
     icon: @image-url("../assets/icon.png");
     width: 540px;
     height: 380px;
     background: Palette.background;
 
     SetupPage {
-        heading: root.page == 0 ? "cuursor " + root.version
+        heading: root.page == 0 ? "beezl " + root.version
             : root.page == 1 ? SetupStrings.installing
             : root.page == 2 ? SetupStrings.done
             : SetupStrings.failed;
@@ -520,7 +520,7 @@ export component Uninstall inherits Window {
     callback uninstall();
     callback dismiss();
 
-    title: "cuursor";
+    title: "beezl";
     icon: @image-url("../assets/icon.png");
     width: 540px;
     height: 380px;

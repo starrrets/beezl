@@ -1,10 +1,10 @@
 //! Task Scheduler definition used for autostart. A logon task (rather than
-//! the Run key) lets cuursor start elevated without a UAC prompt, which it
+//! the Run key) lets beezl start elevated without a UAC prompt, which it
 //! needs to keep working while an elevated window (Task Manager, installers,
 //! admin consoles) is in the foreground: Windows does not deliver mouse
 //! events over those windows to a non-elevated hook.
 
-pub const TASK_NAME: &str = "cuursor";
+pub const TASK_NAME: &str = "beezl";
 /// Argument the task passes, so the app knows it was started at logon.
 pub const FROM_TASK_ARG: &str = "--from-task";
 
@@ -14,7 +14,7 @@ pub fn task_xml(exe: &str) -> String {
         r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>cuursor: seamless cursor movement between monitors</Description>
+    <Description>beezl: seamless cursor movement between monitors</Description>
     <SecurityDescriptor>D:(A;;FA;;;BA)(A;;FA;;;SY)(A;;GRGX;;;AU)</SecurityDescriptor>
   </RegistrationInfo>
   <Triggers>
@@ -68,8 +68,8 @@ mod tests {
 
     #[test]
     fn escapes_path() {
-        let x = task_xml(r"C:\Program Files\A&B\cuursor.exe");
-        assert!(x.contains(r#"<Command>"C:\Program Files\A&amp;B\cuursor.exe"</Command>"#));
+        let x = task_xml(r"C:\Program Files\A&B\beezl.exe");
+        assert!(x.contains(r#"<Command>"C:\Program Files\A&amp;B\beezl.exe"</Command>"#));
         assert!(x.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));
         assert!(x.contains("<Arguments>--from-task</Arguments>"));
     }

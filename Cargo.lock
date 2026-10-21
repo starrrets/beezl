@@ -298,6 +298,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
+name = "beezl"
+version = "0.4.0"
+dependencies = [
+ "embed-resource",
+ "miniz_oxide 0.8.9",
+ "serde",
+ "slint",
+ "slint-build",
+ "toml",
+ "windows",
+]
+
+[[package]]
 name = "bincode"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -743,19 +756,6 @@ name = "cursor-icon"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
-
-[[package]]
-name = "cuursor"
-version = "0.3.0"
-dependencies = [
- "embed-resource",
- "miniz_oxide 0.8.9",
- "serde",
- "slint",
- "slint-build",
- "toml",
- "windows",
-]
 
 [[package]]
 name = "data-url"

@@ -1,6 +1,6 @@
 [package]
-name = "cuursor"
-version = "0.3.0"
+name = "beezl"
+version = "0.4.0"
 edition = "2021"
 description = "Seamless cursor movement between monitors of different size and resolution on Windows"
 license = "MIT"
@@ -39,11 +39,11 @@ features = [
 ]
 
 [[bin]]
-name = "cuursor"
+name = "beezl"
 path = "src/main.rs"
 
 [[bin]]
-name = "cuursor-ui"
+name = "beezl-ui"
 path = "src/ui/main.rs"
 
 [profile.release]

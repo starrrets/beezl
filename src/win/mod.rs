@@ -1,5 +1,5 @@
 //! Background process: owns the mouse hook and the tray icon. All windows
-//! (tray flyout, settings) live in `cuursor-ui.exe`, started on demand, so
+//! (tray flyout, settings) live in `beezl-ui.exe`, started on demand, so
 //! this process stays small and nothing UI-related can delay mouse input.
 
 mod hook;
@@ -9,10 +9,10 @@ use std::os::windows::io::AsRawHandle;
 use std::process::{Child, Command};
 use std::sync::atomic::Ordering;
 
-use cuursor::config::Config;
-use cuursor::layout::Layout;
-use cuursor::sys::{self, autostart, monitors, tr, wide, DAEMON_CLASS, WM_CUURSOR_RELOAD, WM_CUURSOR_SHOW_SETTINGS};
-use cuursor::task::FROM_TASK_ARG;
+use beezl::config::Config;
+use beezl::layout::Layout;
+use beezl::sys::{self, autostart, monitors, tr, wide, DAEMON_CLASS, WM_BEEZL_RELOAD, WM_BEEZL_SHOW_SETTINGS};
+use beezl::task::FROM_TASK_ARG;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{
     GetLastError, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, FILETIME, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT,
@@ -85,7 +85,7 @@ pub fn run() {
             unsafe {
                 let _ = AllowSetForegroundWindow(ASFW_ANY);
             }
-            sys::notify_daemon(WM_CUURSOR_SHOW_SETTINGS);
+            sys::notify_daemon(WM_BEEZL_SHOW_SETTINGS);
         }
         return;
     }
@@ -95,7 +95,7 @@ pub fn run() {
         return;
     }
     unsafe {
-        let _ = CreateMutexW(None, true, w!("Local\\cuursor-single-instance"));
+        let _ = CreateMutexW(None, true, w!("Local\\beezl-single-instance"));
         let e = GetLastError();
         if e == ERROR_ALREADY_EXISTS || e == ERROR_ACCESS_DENIED {
             return;
@@ -195,7 +195,7 @@ fn create_window() -> HWND {
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE(0),
             DAEMON_CLASS,
-            w!("cuursor"),
+            w!("beezl"),
             WS_OVERLAPPED,
             0,
             0,
@@ -208,7 +208,7 @@ fn create_window() -> HWND {
         )
         .unwrap_or_else(|_| fatal(tr("Не удалось создать окно.", "Could not create the window.")));
         // When elevated, let the non-elevated UI and launcher still talk to us.
-        for m in [WM_CUURSOR_RELOAD, WM_CUURSOR_SHOW_SETTINGS] {
+        for m in [WM_BEEZL_RELOAD, WM_BEEZL_SHOW_SETTINGS] {
             let _ = ChangeWindowMessageFilterEx(hwnd, m, MSGFLT_ALLOW, None);
         }
         hwnd
@@ -230,9 +230,9 @@ fn tray(action: NOTIFY_ICON_MESSAGE) {
             ..Default::default()
         };
         let tip = if on {
-            tr("cuursor — включён", "cuursor — on")
+            tr("beezl — включён", "beezl — on")
         } else {
-            tr("cuursor — выключен", "cuursor — off")
+            tr("beezl — выключен", "beezl — off")
         };
         copy_wide(&mut nid.szTip, tip);
         unsafe {
@@ -257,7 +257,7 @@ fn refresh_icons() {
 }
 
 fn spawn_ui(args: &[&str]) -> Option<Child> {
-    let exe = std::env::current_exe().ok()?.with_file_name("cuursor-ui.exe");
+    let exe = std::env::current_exe().ok()?.with_file_name("beezl-ui.exe");
     match Command::new(&exe).args(args).spawn() {
         Ok(c) => {
             unsafe {
@@ -365,11 +365,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
             LRESULT(0)
         }
-        WM_CUURSOR_RELOAD => {
+        WM_BEEZL_RELOAD => {
             reload();
             LRESULT(0)
         }
-        WM_CUURSOR_SHOW_SETTINGS => {
+        WM_BEEZL_SHOW_SETTINGS => {
             spawn_ui(&["--settings"]);
             LRESULT(0)
         }
@@ -407,7 +407,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
 pub(crate) fn message(kind: MESSAGEBOX_STYLE, text: &str) {
     let t = wide(text);
     unsafe {
-        MessageBoxW(None, PCWSTR(t.as_ptr()), w!("cuursor"), MB_OK | kind);
+        MessageBoxW(None, PCWSTR(t.as_ptr()), w!("beezl"), MB_OK | kind);
     }
 }
 

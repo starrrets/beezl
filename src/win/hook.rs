@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use std::sync::Mutex;
 use std::thread::JoinHandle;
 
-use cuursor::layout::{Decision, Layout, Rect};
+use beezl::layout::{Decision, Layout, Rect};
 use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
@@ -172,7 +172,7 @@ pub fn start(p: Params) {
 
     let (tid, ok) = rx.recv().expect("hook thread start");
     if !ok {
-        super::fatal(cuursor::sys::tr("Не удалось установить хук мыши.", "Could not install the mouse hook."));
+        super::fatal(beezl::sys::tr("Не удалось установить хук мыши.", "Could not install the mouse hook."));
     }
     THREAD_ID.store(tid, Ordering::Release);
     *THREAD.lock().unwrap() = Some(handle);

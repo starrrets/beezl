@@ -11,7 +11,7 @@ Foundation checks that the project is open source (MIT), actively maintained,
 already has a release, and has some reputation, so apply after a few releases
 and some stars or downloads. When accepted, add the "Code signing policy"
 section they require to the README (attribution, team roles, privacy:
-cuursor sends no data).
+beezl sends no data).
 
 ## 2. Configure SignPath
 
@@ -47,7 +47,7 @@ Repository **Settings → Secrets and variables → Actions**:
 |----------|----------------------------|------------------------------|
 | Secret   | `SIGNPATH_API_TOKEN`       | the CI user's API token      |
 | Variable | `SIGNPATH_ORGANIZATION_ID` | organization id from SignPath |
-| Variable | `SIGNPATH_PROJECT_SLUG`    | e.g. `cuursor`               |
+| Variable | `SIGNPATH_PROJECT_SLUG`    | e.g. `beezl`                 |
 | Variable | `SIGNPATH_POLICY_SLUG`     | e.g. `release-signing`       |
 
 The next version bump on `main` produces a signed release. Then update the

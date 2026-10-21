@@ -1,4 +1,4 @@
-//! cuursor-ui: the tray flyout (`--flyout L T R B`, the tray icon rectangle),
+//! beezl-ui: the tray flyout (`--flyout L T R B`, the tray icon rectangle),
 //! the settings window (`--settings`), and setup: run from anywhere but the
 //! install folder it is the installer, `--uninstall` removes the app.
 
@@ -6,7 +6,7 @@
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!("cuursor-ui runs on Windows only.");
+    eprintln!("beezl-ui runs on Windows only.");
     std::process::exit(1);
 }
 
@@ -27,8 +27,8 @@ mod app {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use cuursor::config::{Align, Config, Mode};
-    use cuursor::sys::{self, autostart, monitors, monitors::Monitor, monitors::SizeSource, tr, wide};
+    use beezl::config::{Align, Config, Mode};
+    use beezl::sys::{self, autostart, monitors, monitors::Monitor, monitors::SizeSource, tr, wide};
     use slint::winit_030::{winit, EventResult, WinitWindowAccessor};
     use slint::{ComponentHandle, Model, ModelRc, PhysicalPosition, SharedString, VecModel};
     use windows::core::{w, PCWSTR};
@@ -45,8 +45,8 @@ mod app {
     const FLYOUT_W: f32 = 360.0;
     const FLYOUT_H: f32 = 350.0;
     const GAP: f32 = 12.0;
-    const WINDOW_TITLE_RU: &str = "Настройки cuursor";
-    const WINDOW_TITLE_EN: &str = "cuursor settings";
+    const WINDOW_TITLE_RU: &str = "Настройки beezl";
+    const WINDOW_TITLE_EN: &str = "beezl settings";
 
     pub fn run() {
         let args: Vec<String> = std::env::args().skip(1).collect();
@@ -66,7 +66,7 @@ mod app {
         // The uninstaller removes its own folder, so it runs from a temp copy.
         if mode == RunMode::Uninstall && install::running_installed() {
             if let Ok(exe) = std::env::current_exe() {
-                let tmp = std::env::temp_dir().join("cuursor-uninstall.exe");
+                let tmp = std::env::temp_dir().join("beezl-uninstall.exe");
                 if std::fs::copy(&exe, &tmp).is_ok()
                     && std::process::Command::new(&tmp).arg("--uninstall").spawn().is_ok()
                 {
@@ -129,18 +129,18 @@ mod app {
         g.set_install("Установить".into());
         g.set_update("Обновить".into());
         g.set_installing("Установка…".into());
-        g.set_done("cuursor установлен".into());
+        g.set_done("beezl установлен".into());
         g.set_done_desc("Он уже работает в трее и будет запускаться вместе с Windows.".into());
         g.set_open("Открыть настройки".into());
         g.set_close("Закрыть".into());
         g.set_failed("Не получилось".into());
         g.set_retry("Попробовать снова".into());
-        g.set_uninstall_q("Удалить cuursor?".into());
+        g.set_uninstall_q("Удалить beezl?".into());
         g.set_uninstall_desc("Программа и её настройки будут удалены с компьютера.".into());
         g.set_uninstall("Удалить".into());
         g.set_cancel("Отмена".into());
         g.set_uninstalling("Удаление…".into());
-        g.set_uninstalled("cuursor удалён".into());
+        g.set_uninstalled("beezl удалён".into());
     }
 
     fn worker_args(verb: &str) -> String {
@@ -178,7 +178,7 @@ mod app {
                     if res.is_ok() {
                         // Start it the normal way; it relaunches itself through the
                         // logon task to run elevated.
-                        let _ = std::process::Command::new(install::install_dir().join("cuursor.exe")).spawn();
+                        let _ = std::process::Command::new(install::install_dir().join("beezl.exe")).spawn();
                     }
                     let _ = weak.upgrade_in_event_loop(move |ui| match res {
                         Ok(()) => ui.set_page(2),
@@ -194,7 +194,7 @@ mod app {
             unsafe {
                 let _ = AllowSetForegroundWindow(ASFW_ANY);
             }
-            let _ = std::process::Command::new(install::install_dir().join("cuursor-ui.exe")).arg("--settings").spawn();
+            let _ = std::process::Command::new(install::install_dir().join("beezl-ui.exe")).arg("--settings").spawn();
             let _ = slint::quit_event_loop();
         });
         ui.on_dismiss(|| {
@@ -272,7 +272,7 @@ mod app {
     /// Save, tell the background process, and return the fresh monitor list.
     fn commit(cfg: &Config) -> Vec<Monitor> {
         let _ = sys::save_config(cfg);
-        sys::notify_daemon(sys::WM_CUURSOR_RELOAD);
+        sys::notify_daemon(sys::WM_BEEZL_RELOAD);
         monitors::enumerate(cfg)
     }
 
@@ -443,7 +443,7 @@ mod app {
     fn settings(cfg: Rc<RefCell<Config>>) {
         // One settings window: a second request brings the first to front.
         unsafe {
-            let _ = CreateMutexW(None, true, w!("Local\\cuursor-settings"));
+            let _ = CreateMutexW(None, true, w!("Local\\beezl-settings"));
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 let title = wide(tr(WINDOW_TITLE_RU, WINDOW_TITLE_EN));
                 if let Ok(h) = FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())) {

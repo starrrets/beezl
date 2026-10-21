@@ -10,6 +10,6 @@ fn main() {
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!("cuursor runs on Windows only; on this platform only `cargo test` is useful.");
+    eprintln!("beezl runs on Windows only; on this platform only `cargo test` is useful.");
     std::process::exit(1);
 }
