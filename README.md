@@ -30,6 +30,21 @@ density the cursor jumps at the border. beezl reads each monitor's physical
 size and moves the cursor to the same physical point on the next screen. It
 uses almost no CPU: it only acts when the cursor reaches an edge.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io),
+certificate by [SignPath Foundation](https://signpath.org). (Applied for;
+releases are unsigned until the project is approved.)
+
+* Committers and reviewers: [@starrrets](https://github.com/starrrets)
+* Approvers: [@starrrets](https://github.com/starrrets)
+
+Every release is built from this repository's source by GitHub Actions.
+
+**Privacy:** this program will not transfer any information to other networked
+systems unless specifically requested by the user or the person installing or
+operating it.
+
 ---
 
 MIT license · UI made with [Slint](https://slint.dev)

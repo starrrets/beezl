@@ -6,12 +6,11 @@ unsigned and CI skips the signing steps.
 
 ## 1. Apply
 
-Apply at <https://signpath.org/apply> with this repository. SignPath
-Foundation checks that the project is open source (MIT), actively maintained,
-already has a release, and has some reputation, so apply after a few releases
-and some stars or downloads. When accepted, add the "Code signing policy"
-section they require to the README (attribution, team roles, privacy:
-beezl sends no data).
+Apply at <https://signpath.org/apply> with this repository. The README already
+has the "Code signing policy" section SignPath requires (attribution, team
+roles, privacy). SignPath Foundation checks that the project is open source,
+actively maintained, already released, and has some reputation. When approved,
+remove the "Applied for" sentence from that section.
 
 ## 2. Configure SignPath
 
