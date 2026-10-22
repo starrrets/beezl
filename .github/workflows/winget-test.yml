@@ -21,7 +21,6 @@ jobs:
       - name: Latest winget
         shell: pwsh
         run: |
-          Install-PackageProvider -Name NuGet -Force | Out-Null
           Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery | Out-Null
           Repair-WinGetPackageManager -AllUsers -Latest
           winget --version
