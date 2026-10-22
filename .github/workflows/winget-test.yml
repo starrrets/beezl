@@ -46,6 +46,11 @@ jobs:
         shell: pwsh
         run: |
           winget settings --enable LocalManifestFiles
+          # winget marks the download as from the internet; for an unsigned exe
+          # Windows then asks before starting it, on a desktop nobody sees here.
+          $att = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Associations'
+          New-Item $att -Force | Out-Null
+          Set-ItemProperty $att LowRiskFileTypes '.exe'
           # Output goes to files: on this elevated runner the installer starts
           # beezl as its own child (0.4.1 and older), and it would keep the
           # step's output pipe open forever.
