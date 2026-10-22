@@ -6,11 +6,15 @@ unsigned and CI skips the signing steps.
 
 ## 1. Apply
 
-Apply at <https://signpath.org/apply> with this repository. The README already
-has the "Code signing policy" section SignPath requires (attribution, team
-roles, privacy). SignPath Foundation checks that the project is open source,
-actively maintained, already released, and has some reputation. When approved,
-remove the "Applied for" sentence from that section.
+Apply at <https://signpath.org/apply> with this repository. SignPath Foundation
+checks that the project is open source, actively maintained, already released,
+and has some reputation (stars, forks, mentions elsewhere). The first
+application, in October 2026, was declined for too little public visibility,
+so reapply once the project has more of it.
+
+When approved, the README's "Code signing" section must name SignPath and the
+team roles: "Free code signing provided by SignPath.io, certificate by SignPath
+Foundation", plus who commits and who approves releases.
 
 ## 2. Configure SignPath
 
