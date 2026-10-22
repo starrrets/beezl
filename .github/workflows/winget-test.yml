@@ -17,13 +17,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-      # The runner image's winget can lag behind the manifest schema we use.
-      - name: Latest winget
-        shell: pwsh
-        run: |
-          Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery | Out-Null
-          Repair-WinGetPackageManager -AllUsers -Latest
-          winget --version
+      # The runner's winget can be older than the manifest schema we use; it
+      # then only warns about the schema header. Updating it on Windows Server
+      # runners fails (no x64 package in the App Installer bundle).
+      - run: winget --version
       - name: Manifests
         shell: pwsh
         env:
