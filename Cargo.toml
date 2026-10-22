@@ -1,6 +1,6 @@
 [package]
 name = "beezl"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 description = "Seamless cursor movement between monitors of different size and resolution on Windows"
 license = "MIT"
