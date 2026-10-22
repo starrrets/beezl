@@ -1,6 +1,7 @@
 //! beezl-ui: the tray flyout (`--flyout L T R B`, the tray icon rectangle),
 //! the settings window (`--settings`), and setup: run from anywhere but the
-//! install folder it is the installer, `--uninstall` removes the app.
+//! install folder it is the installer, `--uninstall` removes the app. With
+//! `--silent` both run without a window.
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
@@ -55,6 +56,10 @@ mod app {
         // Elevated workers of the setup and uninstall windows: no UI.
         if has("--do-install") || has("--do-uninstall") {
             std::process::exit(install::worker(has("--do-install")));
+        }
+        // Unattended setup for package managers such as winget.
+        if has("--silent") {
+            std::process::exit(install::silent(has("--uninstall")));
         }
         let mode = if has("--uninstall") {
             RunMode::Uninstall
