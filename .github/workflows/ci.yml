@@ -134,24 +134,14 @@ jobs:
 
       # The winget/ templates, filled in, go to microsoft/winget-pkgs as a PR
       # from a fork under the WINGET_TOKEN owner (classic token, public_repo).
-      # The checksum is taken from the published file, which a manual rerun
-      # does not rebuild.
       - name: winget
         if: steps.rel.outputs.winget == 'true'
         shell: pwsh
         env:
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
         run: |
-          $version = "${{ steps.rel.outputs.version }}"
           $out = Join-Path $PWD "target\winget"
-          New-Item -ItemType Directory -Force $out | Out-Null
-          $setup = Join-Path $out "..\published-setup.exe"
-          Invoke-WebRequest "https://github.com/${{ github.repository }}/releases/download/v$version/beezl-setup.exe" -OutFile $setup
-          $sha = (Get-FileHash $setup -Algorithm SHA256).Hash
-          Get-ChildItem winget\*.yaml | ForEach-Object {
-            (Get-Content $_ -Raw).Replace('{{VERSION}}', $version).Replace('{{SHA256}}', $sha) |
-              Set-Content -NoNewline -Encoding utf8NoBOM (Join-Path $out $_.Name)
-          }
+          ./winget/fill.ps1 -Version "${{ steps.rel.outputs.version }}" -Out $out
           Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
           .\wingetcreate.exe submit --token $env:WINGET_TOKEN $out
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
