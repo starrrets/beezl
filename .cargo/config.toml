@@ -1,0 +1,4 @@
+# Link the C runtime statically, so the exes run on a clean Windows without
+# the Visual C++ Redistributable (winget validates in such a sandbox).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

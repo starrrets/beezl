@@ -84,6 +84,11 @@ jobs:
           cargo build --release --bin beezl-ui
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item target\release\beezl-ui.exe target\installer\beezl-setup.exe
+          # A clean Windows has no Visual C++ runtime; see .cargo/config.toml.
+          foreach ($exe in 'target\payload\beezl.exe', 'target\installer\beezl-setup.exe') {
+            $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe))
+            if ($text -match '(?i)vcruntime140') { Write-Error "$exe needs the VC++ runtime"; exit 1 }
+          }
 
       - id: unsigned-setup
         if: steps.rel.outputs.sign == 'true'
