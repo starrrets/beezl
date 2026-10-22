@@ -127,8 +127,9 @@ pub fn silent(uninstall: bool) -> i32 {
     if run_elevated(&format!("{verb} --parent {}", std::process::id())).is_err() {
         return 1;
     }
-    if !uninstall {
-        // Started the normal way, it relaunches itself through the logon task.
+    // Start it through its logon task, so that it is not our child: a package
+    // manager that waits for our output handles to close would wait forever.
+    if !uninstall && !autostart::launch_via_task() {
         let _ = Command::new(install_dir().join("beezl.exe")).spawn();
     }
     0

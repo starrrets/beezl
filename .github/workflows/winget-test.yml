@@ -15,6 +15,7 @@ permissions:
 jobs:
   winget:
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       # The runner's winget can be older than the manifest schema we use; it
@@ -45,8 +46,16 @@ jobs:
         shell: pwsh
         run: |
           winget settings --enable LocalManifestFiles
-          winget install --manifest target\winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Output goes to files: on this elevated runner the installer starts
+          # beezl as its own child (0.4.1 and older), and it would keep the
+          # step's output pipe open forever.
+          $p = Start-Process winget -NoNewWindow -PassThru `
+            -RedirectStandardOutput install.log -RedirectStandardError install.err `
+            -ArgumentList 'install --manifest target\winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity'
+          $p.WaitForExit()
+          Get-Content install.log, install.err
+          if ($p.ExitCode -ne 0) { exit $p.ExitCode }
+          Get-Process beezl -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime
           $key = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\beezl'
           if (-not (Test-Path $key)) { throw "no uninstall entry after install" }
           Get-ItemProperty $key | Format-List DisplayName, DisplayVersion, InstallLocation, QuietUninstallString
