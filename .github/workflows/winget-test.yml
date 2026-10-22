@@ -35,10 +35,12 @@ jobs:
       - name: Validate
         shell: pwsh
         run: |
-          # "Succeeded with warnings" has a non-zero exit code too.
+          # "Succeeded with warnings" has a non-zero exit code too, which
+          # Actions would otherwise pick up from $LASTEXITCODE.
           $log = winget validate --manifest target\winget --disable-interactivity | Out-String
           Write-Host $log
           if ($log -notmatch 'Manifest validation succeeded') { exit 1 }
+          exit 0
       - name: Install
         shell: pwsh
         run: |
