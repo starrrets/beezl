@@ -52,8 +52,17 @@ jobs:
           $p = Start-Process winget -NoNewWindow -PassThru `
             -RedirectStandardOutput install.log -RedirectStandardError install.err `
             -ArgumentList 'install --manifest target\winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity'
-          $p.WaitForExit()
+          $done = $p.WaitForExit(300000)
           Get-Content install.log, install.err
+          if (-not $done) {
+            Write-Host "winget did not finish in 5 minutes. Processes:"
+            Get-CimInstance Win32_Process |
+              Where-Object { $_.Name -match 'beezl|winget|schtasks|AppInstaller' } |
+              Format-Table ProcessId, ParentProcessId, Name, CommandLine -AutoSize -Wrap
+            Get-ChildItem "$env:LOCALAPPDATA\Packages\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\LocalState\DiagOutputDir" -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime | Select-Object -Last 1 | Get-Content -Tail 60
+            exit 1
+          }
           if ($p.ExitCode -ne 0) { exit $p.ExitCode }
           Get-Process beezl -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime
           $key = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\beezl'
