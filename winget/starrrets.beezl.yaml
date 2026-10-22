@@ -1,0 +1,5 @@
+PackageIdentifier: starrrets.beezl
+PackageVersion: "{{VERSION}}"
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.10.0

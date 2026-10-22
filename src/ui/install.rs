@@ -120,6 +120,20 @@ pub fn run_elevated(args: &str) -> Result<(), String> {
     }
 }
 
+/// Install (or with `uninstall`, remove) without a window, as winget runs
+/// setup programs. Returns the process exit code.
+pub fn silent(uninstall: bool) -> i32 {
+    let verb = if uninstall { "--do-uninstall" } else { "--do-install" };
+    if run_elevated(&format!("{verb} --parent {}", std::process::id())).is_err() {
+        return 1;
+    }
+    if !uninstall {
+        // Started the normal way, it relaunches itself through the logon task.
+        let _ = Command::new(install_dir().join("beezl.exe")).spawn();
+    }
+    0
+}
+
 /// Where the elevated worker leaves an error message for the window.
 fn error_file() -> PathBuf {
     std::env::temp_dir().join("beezl-setup-error.txt")
@@ -352,6 +366,7 @@ fn register_uninstall(dir: &Path) -> Result<(), String> {
         set_str("InstallLocation", &dir.to_string_lossy());
         set_str("DisplayIcon", &format!("{},0", dir.join("beezl.exe").display()));
         set_str("UninstallString", &format!("\"{}\" --uninstall", ui.display()));
+        set_str("QuietUninstallString", &format!("\"{}\" --uninstall --silent", ui.display()));
         set_dword("NoModify", 1);
         set_dword("NoRepair", 1);
         set_dword("EstimatedSize", size_kb);

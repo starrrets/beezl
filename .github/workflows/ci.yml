@@ -29,6 +29,8 @@ jobs:
       - name: Release check
         id: rel
         shell: pwsh
+        env:
+          HAS_WINGET_TOKEN: ${{ secrets.WINGET_TOKEN != '' }}
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           $tag = "v$version"
@@ -38,11 +40,13 @@ jobs:
             if (-not (git ls-remote --tags origin "refs/tags/$tag")) { $release = "true" }
           }
           $sign = if ($release -eq "true" -and "${{ vars.SIGNPATH_ORGANIZATION_ID }}" -ne "") { "true" } else { "false" }
+          $winget = if ($release -eq "true" -and $env:HAS_WINGET_TOKEN -eq "true") { "true" } else { "false" }
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "release=$release" >> $env:GITHUB_OUTPUT
           "sign=$sign" >> $env:GITHUB_OUTPUT
-          Write-Host "version $version, release $release, sign $sign"
+          "winget=$winget" >> $env:GITHUB_OUTPUT
+          Write-Host "version $version, release $release, sign $sign, winget $winget"
 
       - run: cargo build --release
       - name: Stage daemon
@@ -125,3 +129,21 @@ jobs:
             [![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
           make_latest: true
           files: target/installer/beezl-setup.exe
+
+      # The winget/ templates, filled in, go to microsoft/winget-pkgs as a PR
+      # from a fork under the WINGET_TOKEN owner (classic token, public_repo).
+      - name: winget
+        if: steps.rel.outputs.winget == 'true'
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          $out = "target\winget"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          Get-ChildItem winget\*.yaml | ForEach-Object {
+            (Get-Content $_ -Raw).Replace('{{VERSION}}', '${{ steps.rel.outputs.version }}').Replace('{{SHA256}}', '${{ steps.sum.outputs.sha256 }}') |
+              Set-Content -NoNewline -Encoding utf8NoBOM (Join-Path $out $_.Name)
+          }
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe submit --token $env:WINGET_TOKEN $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
