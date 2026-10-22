@@ -34,7 +34,7 @@ uses almost no CPU: it only acts when the cursor reaches an edge.
 
 Releases are not code-signed yet, so Windows SmartScreen warns on first run.
 Every release is built from this repository's source by GitHub Actions, and
-`SHA256SUMS.txt` next to the installer lists its checksum.
+the release notes list the installer's SHA-256 checksum.
 
 **Privacy:** this program will not transfer any information to other networked
 systems unless specifically requested by the user or the person installing or

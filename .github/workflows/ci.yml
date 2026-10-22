@@ -96,11 +96,13 @@ jobs:
           wait-for-completion-timeout-in-seconds: 3600
           output-artifact-directory: target/installer
 
+      # The release has one file to download; its checksum goes in the notes.
       - name: Checksum
+        id: sum
         shell: pwsh
         run: |
           $hash = (Get-FileHash target\installer\beezl-setup.exe -Algorithm SHA256).Hash.ToLower()
-          "$hash  beezl-setup.exe" | Set-Content -NoNewline -Encoding ascii target\installer\SHA256SUMS.txt
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
       # Plain .exe download from the run page, not a zip.
       - uses: actions/upload-artifact@v7
         with:
@@ -118,8 +120,8 @@ jobs:
             **[Download beezl-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ steps.rel.outputs.tag }}/beezl-setup.exe)**, run it and click Install.
             If SmartScreen says "Windows protected your PC", click **More info → Run anyway**.
 
+            SHA-256: `${{ steps.sum.outputs.sha256 }}`
+
             [![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
           make_latest: true
-          files: |
-            target/installer/beezl-setup.exe
-            target/installer/SHA256SUMS.txt
+          files: target/installer/beezl-setup.exe
