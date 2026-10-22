@@ -77,7 +77,7 @@ jobs:
       - name: Uninstall
         shell: pwsh
         run: |
-          winget uninstall --manifest target\winget --silent --disable-interactivity
+          winget uninstall --manifest target\winget --silent --accept-source-agreements --disable-interactivity
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Start-Sleep 5
           if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\beezl') { throw "uninstall entry still there" }
