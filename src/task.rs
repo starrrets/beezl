@@ -1,11 +1,12 @@
-//! Task Scheduler definition used for autostart. A logon task (rather than
-//! the Run key) lets beezl start elevated without a UAC prompt, which it
+//! Task Scheduler definition for starting beezl elevated. The task has no
+//! trigger: the Run entry (see `sys::autostart`) and manual launches start
+//! it on demand. It lets beezl start elevated without a UAC prompt, which it
 //! needs to keep working while an elevated window (Task Manager, installers,
 //! admin consoles) is in the foreground: Windows does not deliver mouse
 //! events over those windows to a non-elevated hook.
 
 pub const TASK_NAME: &str = "beezl";
-/// Argument the task passes, so the app knows it was started at logon.
+/// Argument the task passes, so the app knows it is the elevated copy.
 pub const FROM_TASK_ARG: &str = "--from-task";
 
 pub fn task_xml(exe: &str) -> String {
@@ -17,11 +18,7 @@ pub fn task_xml(exe: &str) -> String {
     <Description>beezl: seamless cursor movement between monitors</Description>
     <SecurityDescriptor>D:(A;;FA;;;BA)(A;;FA;;;SY)(A;;GRGX;;;AU)</SecurityDescriptor>
   </RegistrationInfo>
-  <Triggers>
-    <LogonTrigger>
-      <Enabled>true</Enabled>
-    </LogonTrigger>
-  </Triggers>
+  <Triggers />
   <Principals>
     <Principal id="Users">
       <GroupId>S-1-5-32-545</GroupId>
@@ -72,5 +69,6 @@ mod tests {
         assert!(x.contains(r#"<Command>"C:\Program Files\A&amp;B\beezl.exe"</Command>"#));
         assert!(x.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));
         assert!(x.contains("<Arguments>--from-task</Arguments>"));
+        assert!(!x.contains("LogonTrigger"));
     }
 }
