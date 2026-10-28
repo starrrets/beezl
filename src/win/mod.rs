@@ -40,6 +40,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 const WM_TRAY: u32 = WM_APP + 10;
 const TIMER_RELOAD: usize = 1;
+const TIMER_TRAY: usize = 2;
 
 const ID_SETTINGS: usize = 1;
 const ID_EXIT: usize = 2;
@@ -77,10 +78,11 @@ pub fn run() {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
     let from_task = has(FROM_TASK_ARG);
+    let at_logon = has(autostart::AUTOSTART_ARG);
 
     // Already running: a manual launch just opens the settings.
     if unsafe { windows::Win32::UI::WindowsAndMessaging::FindWindowW(DAEMON_CLASS, None) }.is_ok() {
-        if !from_task {
+        if !from_task && !at_logon {
             // Let the running instance bring its window to the front.
             unsafe {
                 let _ = AllowSetForegroundWindow(ASFW_ANY);
@@ -89,7 +91,7 @@ pub fn run() {
         }
         return;
     }
-    // Prefer the elevated instance started by the installed logon task, so the
+    // Prefer the elevated instance started through the installed task, so the
     // hook also works over admin windows.
     if !from_task && !autostart::is_elevated() && autostart::launch_via_task() {
         return;
@@ -101,18 +103,15 @@ pub fn run() {
             return;
         }
     }
-    if from_task {
-        // An older portable copy must not start next to the installed one.
-        autostart::remove_run_key();
-    }
-    let manual = autostart::take_launch_flag();
+    // Clear the flag left by the launcher; the task only runs on demand.
+    let _ = autostart::take_launch_flag();
     let first_run = !sys::config_path().exists();
     let cfg = sys::load_config();
-    if from_task && !manual && !cfg.autostart {
-        return;
-    }
     if first_run {
         let _ = sys::save_config(&cfg);
+    }
+    if from_task {
+        autostart::ensure_run_key(&cfg);
     }
 
     unsafe {
@@ -133,7 +132,7 @@ pub fn run() {
             flyout: None,
         })
     });
-    tray(NIM_ADD);
+    add_tray_icon(hwnd);
     if first_run {
         spawn_ui(&["--settings"]);
     }
@@ -146,7 +145,7 @@ pub fn run() {
         }
     }
 
-    tray(NIM_DELETE);
+    let _ = tray(NIM_DELETE);
     hook::stop();
 }
 
@@ -169,7 +168,7 @@ fn reload() {
             app.cfg = cfg;
         }
     });
-    tray(NIM_MODIFY);
+    let _ = tray(NIM_MODIFY);
 }
 
 fn load_icons() -> (HICON, HICON) {
@@ -208,17 +207,30 @@ fn create_window() -> HWND {
         )
         .unwrap_or_else(|_| fatal(tr("Не удалось создать окно.", "Could not create the window.")));
         // When elevated, let the non-elevated UI and launcher still talk to us.
-        for m in [WM_BEEZL_RELOAD, WM_BEEZL_SHOW_SETTINGS] {
+        // TaskbarCreated comes from Explorer, which is not elevated either;
+        // without this an elevated beezl never re-adds its icon.
+        let taskbar_created = RegisterWindowMessageW(w!("TaskbarCreated"));
+        for m in [WM_BEEZL_RELOAD, WM_BEEZL_SHOW_SETTINGS, taskbar_created] {
             let _ = ChangeWindowMessageFilterEx(hwnd, m, MSGFLT_ALLOW, None);
         }
         hwnd
     }
 }
 
-fn tray(action: NOTIFY_ICON_MESSAGE) {
+/// Add the icon, retrying while the taskbar is not there yet (at logon an
+/// elevated task can start before Explorer has created it).
+fn add_tray_icon(hwnd: HWND) {
+    if tray(NIM_ADD) {
+        let _ = unsafe { KillTimer(Some(hwnd), TIMER_TRAY) };
+    } else {
+        unsafe { SetTimer(Some(hwnd), TIMER_TRAY, 2_000, None) };
+    }
+}
+
+fn tray(action: NOTIFY_ICON_MESSAGE) -> bool {
     APP.with(|a| {
         let a = a.borrow();
-        let Some(app) = a.as_ref() else { return };
+        let Some(app) = a.as_ref() else { return false };
         let on = app.cfg.enabled;
         let mut nid = NOTIFYICONDATAW {
             cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
@@ -235,10 +247,8 @@ fn tray(action: NOTIFY_ICON_MESSAGE) {
             tr("beezl — выключен", "beezl — off")
         };
         copy_wide(&mut nid.szTip, tip);
-        unsafe {
-            let _ = Shell_NotifyIconW(action, &nid);
-        }
-    });
+        unsafe { Shell_NotifyIconW(action, &nid).as_bool() }
+    })
 }
 
 fn refresh_icons() {
@@ -253,7 +263,7 @@ fn refresh_icons() {
             app.icon_off = off;
         }
     });
-    tray(NIM_MODIFY);
+    let _ = tray(NIM_MODIFY);
 }
 
 fn spawn_ui(args: &[&str]) -> Option<Child> {
@@ -388,6 +398,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             refresh_icons();
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
+        WM_TIMER if wparam.0 == TIMER_TRAY => {
+            // Keep trying until the taskbar accepts the icon.
+            add_tray_icon(hwnd);
+            LRESULT(0)
+        }
         WM_DESTROY => {
             unsafe { PostQuitMessage(0) };
             LRESULT(0)
@@ -395,8 +410,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         _ => {
             let recreated = APP.with(|a| a.try_borrow().ok().and_then(|a| a.as_ref().map(|a| a.taskbar_created)));
             if recreated == Some(msg) && msg != 0 {
-                // Explorer restarted; the old icon is gone.
-                tray(NIM_ADD);
+                // Explorer (re)started; any old icon is gone.
+                add_tray_icon(hwnd);
                 return LRESULT(0);
             }
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }

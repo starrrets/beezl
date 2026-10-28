@@ -1,10 +1,11 @@
 //! Autostart and elevation.
 //!
-//! Installed copies use a logon task (see [`crate::task`]) that starts
-//! beezl elevated without a UAC prompt. Portable copies fall back to the
-//! per-user Run key. Whether autostart is wanted is stored in the settings
-//! file, so turning it off never needs admin rights: the task still fires at
-//! logon and the app exits straight away.
+//! Autostart is the per-user Run key, so beezl shows up (and can be turned
+//! off) in Task Manager's Startup apps. Installed copies also have an
+//! on-demand task (see [`crate::task`]): the copy started from the Run key
+//! is not elevated, so it starts the elevated one through the task, which
+//! needs no UAC prompt, and exits. Turning autostart on or off never needs
+//! admin rights.
 
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
@@ -17,7 +18,7 @@ use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, HANDLE};
 use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
 use windows::Win32::System::Registry::{
-    RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ,
+    RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_BINARY, RRF_RT_REG_SZ,
 };
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -27,6 +28,10 @@ const RUN_KEY: PCWSTR = w!(r"Software\Microsoft\Windows\CurrentVersion\Run");
 const RUN_VALUE: PCWSTR = w!("beezl");
 /// Run value of v0.1, when the app was called cuursor.
 const LEGACY_RUN_VALUE: PCWSTR = w!("cuursor");
+/// Where Task Manager records Startup apps the user turned off.
+const APPROVED_KEY: PCWSTR = w!(r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run");
+/// Argument of the Run entry, so a logon start never opens a window.
+pub const AUTOSTART_ARG: &str = "--autostart";
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 fn schtasks(args: &[&str]) -> bool {
@@ -45,7 +50,8 @@ pub fn task_installed() -> bool {
     schtasks(&["/query", "/tn", TASK_NAME])
 }
 
-/// Create (or update) the logon task. Needs admin; run by the installer.
+/// Create (or update) the task, and the Run entry unless autostart was
+/// turned off. Needs admin; run by the installer.
 pub fn register_task() -> bool {
     let Ok(exe) = std::env::current_exe() else { return false };
     let xml = task_xml(&exe.to_string_lossy());
@@ -58,9 +64,8 @@ pub fn register_task() -> bool {
     }
     let ok = schtasks(&["/create", "/tn", TASK_NAME, "/xml", &path.to_string_lossy(), "/f"]);
     let _ = std::fs::remove_file(path);
-    if ok {
-        // The task replaces the per-user Run entry of portable/older versions.
-        set_run_key(false);
+    if ok && super::load_config().autostart {
+        set_run_key(true);
     }
     ok
 }
@@ -100,20 +105,43 @@ pub fn take_launch_flag() -> bool {
     fresh
 }
 
-pub fn is_enabled(cfg: &Config) -> bool {
-    if task_installed() {
-        cfg.autostart
-    } else {
-        run_key().is_some()
-    }
+/// Whether beezl starts with Windows: the Run entry exists and was not
+/// turned off in Task Manager.
+pub fn is_enabled(_cfg: &Config) -> bool {
+    run_key().is_some() && !turned_off_in_task_manager()
 }
 
 /// Turn autostart on or off; the caller saves `cfg`.
 pub fn set_enabled(cfg: &mut Config, on: bool) {
     cfg.autostart = on;
-    if !task_installed() {
-        set_run_key(on);
+    set_run_key(on);
+}
+
+/// Restore a missing Run entry when autostart is on (for installs made by
+/// older versions, or when the installer ran under another account).
+pub fn ensure_run_key(cfg: &Config) {
+    if cfg.autostart && run_key().is_none() {
+        set_run_key(true);
     }
+}
+
+/// Task Manager stores a 12-byte value whose first byte is odd when the
+/// entry is turned off.
+fn turned_off_in_task_manager() -> bool {
+    let mut buf = [0u8; 12];
+    let mut len = buf.len() as u32;
+    let err = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            APPROVED_KEY,
+            RUN_VALUE,
+            RRF_RT_REG_BINARY,
+            None,
+            Some(buf.as_mut_ptr().cast()),
+            Some(&mut len),
+        )
+    };
+    err == ERROR_SUCCESS && len > 0 && buf[0] & 1 == 1
 }
 
 fn run_key() -> Option<()> {
@@ -121,8 +149,7 @@ fn run_key() -> Option<()> {
     (err == ERROR_SUCCESS).then_some(())
 }
 
-/// Drop the per-user Run entry (portable and v0.1 copies); the logon task
-/// replaces it.
+/// Drop the per-user Run entries (uninstall, and the v0.1 cuursor entry).
 pub fn remove_run_key() {
     set_run_key(false);
     unsafe {
@@ -132,12 +159,14 @@ pub fn remove_run_key() {
 
 fn set_run_key(on: bool) {
     unsafe {
+        // Either way, forget a "turned off" mark left by Task Manager.
+        let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, APPROVED_KEY, RUN_VALUE);
         if !on {
             let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, RUN_VALUE);
             return;
         }
         let Ok(exe) = std::env::current_exe() else { return };
-        let data = wide(&format!("\"{}\"", exe.display()));
+        let data = wide(&format!("\"{}\" {AUTOSTART_ARG}", exe.display()));
         let _ = RegSetKeyValueW(
             HKEY_CURRENT_USER,
             RUN_KEY,
